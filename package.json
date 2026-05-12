@@ -1,0 +1,32 @@
+{
+  "name": "cli-claude-sessions",
+  "version": "0.1.0",
+  "description": "Terminal UI for browsing, resuming, moving, and deleting Claude Code sessions",
+  "bin": {
+    "claude-sessions": "./index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "cli",
+    "tui",
+    "terminal",
+    "sessions"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vinh0809it/claude-sessions.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vinh0809it/claude-sessions/issues"
+  },
+  "homepage": "https://github.com/vinh0809it/claude-sessions#readme",
+  "files": [
+    "index.js"
+  ]
+}
