@@ -173,9 +173,10 @@ function deleteSessionFiles(session) {
   } catch {}
 }
 
-function moveSession(session, targetConfigDirPath) {
-  const projectDirName   = path.basename(path.dirname(session.jsonlPath));
-  const targetProjectDir = path.join(targetConfigDirPath, 'projects', projectDirName);
+function moveSession(session, targetConfigDirPath, targetProjectDirName) {
+  const srcProjectDirName = path.basename(path.dirname(session.jsonlPath));
+  const destDirName       = targetProjectDirName || srcProjectDirName;
+  const targetProjectDir  = path.join(targetConfigDirPath, 'projects', destDirName);
   fs.mkdirSync(targetProjectDir, { recursive: true });
 
   const targetJsonl = path.join(targetProjectDir, path.basename(session.jsonlPath));
@@ -188,10 +189,71 @@ function moveSession(session, targetConfigDirPath) {
     }
   } catch {}
 
-  // Mutate in place so the caller's reference stays valid
   session.configDir     = path.basename(targetConfigDirPath);
   session.configDirPath = targetConfigDirPath;
   session.jsonlPath     = targetJsonl;
+}
+
+/** List project folders that exist in a config dir, with display paths from cwd. */
+function listProjectFolders(configDirPath) {
+  const projectsDir = path.join(configDirPath, 'projects');
+  if (!fs.existsSync(projectsDir)) return [];
+  try {
+    return fs.readdirSync(projectsDir)
+      .filter(d => { try { return fs.statSync(path.join(projectsDir, d)).isDirectory(); } catch { return false; } })
+      .map(d => {
+        let displayPath = d;
+        try {
+          const f = fs.readdirSync(path.join(projectsDir, d)).find(f => f.endsWith('.jsonl'));
+          if (f) { const { cwd } = readSession(path.join(projectsDir, d, f)); if (cwd) displayPath = shortenPath(cwd); }
+        } catch {}
+        return { projectDirName: d, displayPath };
+      })
+      .sort((a, b) => a.displayPath.localeCompare(b.displayPath));
+  } catch { return []; }
+}
+
+/** Encode an absolute path the same way Claude Code does for project dir names. */
+function encodePathToDir(absPath) {
+  return absPath.replace(/\//g, '-');
+}
+
+/** Shell-style Tab completion for directory paths. */
+function tabComplete(input) {
+  const expanded = input.replace(/^~/, os.homedir());
+  const endsWithSlash = expanded.endsWith('/');
+  const baseDir = endsWithSlash ? (expanded.slice(0, -1) || '/') : path.dirname(expanded);
+  const prefix  = endsWithSlash ? '' : path.basename(expanded);
+
+  let matches;
+  try {
+    matches = fs.readdirSync(baseDir)
+      .filter(n => n.startsWith(prefix) && (() => { try { return fs.statSync(path.join(baseDir, n)).isDirectory(); } catch { return false; } })())
+      .sort();
+  } catch { return { completed: input, matches: [] }; }
+
+  if (!matches.length) return { completed: input, matches: [] };
+
+  if (matches.length === 1) {
+    const completed = (path.join(baseDir, matches[0]) + '/').replace(os.homedir(), '~');
+    return { completed, matches: [] };
+  }
+
+  // Multiple: find common prefix among match names
+  let common = matches[0];
+  for (const m of matches.slice(1)) {
+    let i = 0;
+    while (i < common.length && i < m.length && common[i] === m[i]) i++;
+    common = common.slice(0, i);
+  }
+
+  if (common.length > prefix.length) {
+    const completed = path.join(baseDir, common).replace(os.homedir(), '~');
+    return { completed, matches: matches.map(m => m + '/') };
+  }
+
+  // No further completion — keep input unchanged, show options
+  return { completed: input, matches: matches.map(m => m + '/') };
 }
 
 // ─── Terminal detection & open ────────────────────────────────────────────────
@@ -256,6 +318,12 @@ function shortConfig(configDir) {
   return path.basename(configDir).replace(/^\.claude-?/, '') || 'default';
 }
 
+/** Replace home dir prefix with ~ */
+function shortenPath(p) {
+  const home = os.homedir();
+  return p.startsWith(home) ? '~' + p.slice(home.length) : p;
+}
+
 // ─── Plain list output ────────────────────────────────────────────────────────
 
 function ansi(code, s) { return process.stdout.isTTY ? `\x1b[${code}m${s}\x1b[0m` : s; }
@@ -270,7 +338,7 @@ function printList(sessions) {
       lastConfig = s.configDir; lastProject = null;
     }
     if (s.project !== lastProject) {
-      console.log(ansi('33', `  ${s.project}`));
+      console.log(ansi('33', `  ${shortenPath(s.project)}`));
       lastProject = s.project;
     }
     const label = s.title
@@ -306,9 +374,15 @@ class TUI {
     this.all         = sessions;
     this.filterPath  = filterPath || '';
     this.search      = '';
-    this.mode        = null;
-    this.moveTargets = [];
-    this.statusMsg   = '';
+    this.mode          = null;  // null | 'search' | 'delete' | 'move'
+    this.moveStep      = 'profile';  // 'profile' | 'folder' | 'input'
+    this.moveItems     = [];   // current picker items (profile list or folder list)
+    this.moveSelIdx    = 0;
+    this.moveScroll    = 0;
+    this.pendingConfig    = null; // config dir chosen in step 1
+    this.moveInput        = '';   // typed path in input step
+    this.moveCompletions  = [];   // Tab completion candidates shown below input
+    this.statusMsg     = '';
     this._statusTimer = null;
     this.selIdx      = 0;
     this.scrollTop   = 0;
@@ -331,23 +405,15 @@ class TUI {
           s.project.toLowerCase().includes(q))
       : this.all;
 
-    if (this.search) {
-      // Flat list in search mode — context shown inline per item
-      this.items = filtered.map(s => ({ type: 'session', session: s }));
-    } else {
-      this.items = [];
-      let lastConfig = null, lastProject = null;
-      for (const s of filtered) {
-        if (s.configDir !== lastConfig) {
-          this.items.push({ type: 'config', label: s.configDir });
-          lastConfig = s.configDir; lastProject = null;
-        }
-        if (s.project !== lastProject) {
-          this.items.push({ type: 'project', label: s.project });
-          lastProject = s.project;
-        }
-        this.items.push({ type: 'session', session: s });
+    // Both modes: config section headers only; folder shown as column 2 per row
+    this.items = [];
+    let lastConfig = null;
+    for (const s of filtered) {
+      if (s.configDir !== lastConfig) {
+        this.items.push({ type: 'config', label: s.configDir });
+        lastConfig = s.configDir;
       }
+      this.items.push({ type: 'session', session: s });
     }
 
     const total = this.sessionItems().length;
@@ -383,6 +449,60 @@ class TUI {
     this._statusTimer = setTimeout(() => { this.statusMsg = ''; this.render(); }, ms);
   }
 
+  _buildMoveItems() {
+    const s = this.selectedSession();
+    if (this.moveStep === 'profile') {
+      return discoverConfigDirs()
+        .map(d => ({
+          type: 'profile',
+          label: path.basename(d) + (d === s?.configDirPath ? '  (current)' : ''),
+          configDirPath: d,
+        }));
+    }
+    const sameLabel = (s ? shortenPath(s.project) : '') + '  (same as source)';
+    return [
+      { type: 'same',   label: sameLabel, dirName: null },
+      ...listProjectFolders(this.pendingConfig).map(f => ({
+        type: 'folder', label: f.displayPath, dirName: f.projectDirName,
+      })),
+      { type: 'new',    label: '[type a new path…]', dirName: null },
+    ];
+  }
+
+  _enterMove() {
+    this.moveStep   = 'profile';
+    this.moveItems  = this._buildMoveItems();
+    this.moveSelIdx = 0;
+    this.moveScroll = 0;
+    this.mode       = 'move';
+  }
+
+  _enterFolderStep(configDirPath) {
+    this.pendingConfig = configDirPath;
+    this.moveStep      = 'folder';
+    this.moveItems     = this._buildMoveItems();
+    this.moveSelIdx    = 0;
+    this.moveScroll    = 0;
+  }
+
+  _doMove(targetDirName) {
+    const s = this.selectedSession();
+    if (!s) { this.mode = null; return; }
+    const sessionId = s.sessionId;
+    try {
+      moveSession(s, this.pendingConfig, targetDirName);
+      this.mode = null;
+      this.rebuild();
+      // Focus the moved session in its new position
+      const idx = this.sessionItems().findIndex(i => i.session.sessionId === sessionId);
+      if (idx >= 0) { this.selIdx = idx; this.ensureVisible(); }
+      this.setStatus(`Moved to [${path.basename(this.pendingConfig)}]`);
+    } catch (e) {
+      this.mode = null;
+      this.setStatus(`Move failed: ${e.message}`, 4000);
+    }
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   render() {
@@ -395,59 +515,107 @@ class TUI {
     out.push(bgc('44', bold(fgc('97', pad(trunc(`  claude-sessions${filterInfo}${searchInfo}`, W), W)))));
 
     // List
-    const visible = this.items.slice(this.scrollTop, this.scrollTop + this.listH);
-    let si = this.items.slice(0, this.scrollTop).filter(i => i.type === 'session').length;
+    if (this.mode === 'move') {
+      // ── Move picker (full-screen, two-step: profile → folder/input) ───────────
+      const s = this.selectedSession();
+      const sessionLabel = s?.title || s?.firstMessage?.slice(0, 60) || s?.sessionId?.slice(0, 8) || '';
 
-    for (let r = 0; r < this.listH; r++) {
-      out.push(mv(r + 2, 1), clrLine);
-      const item = visible[r];
-      if (!item) continue;
+      // Row 2: session being moved
+      out.push(mv(2, 1), clrLine);
+      out.push(`  Moving: ` + (sessionLabel ? fgc('92', `"${trunc(sessionLabel, W - 12)}"`) : dim('(untitled)')));
 
-      if (item.type === 'config') {
-        out.push(bold(fgc('96', `  [${item.label}]`)));
-
-      } else if (item.type === 'project') {
-        out.push(fgc('33', trunc(`    ${item.label}`, W)));
-
+      // Row 3: step subtitle
+      out.push(mv(3, 1), clrLine);
+      const divider = dim('─'.repeat(Math.max(0, W - 2)));
+      if (this.moveStep === 'profile') {
+        out.push(`  ` + bold('Select target profile') + `  ` + divider);
       } else {
-        const s      = item.session;
-        const isSel  = si === this.selIdx;
-        const dateStr = fmtDate(s.lastModified);
-        const dateW   = dateStr.length + 2;
+        out.push(`  ` + bold('Select folder in ') + bold(fgc('96', `[${path.basename(this.pendingConfig)}]`)) + `  ` + divider);
+      }
 
-        if (this.search) {
-          // Search mode: [config] project › title  date
-          const cfgLabel  = shortConfig(s.configDir);
-          const projLabel = path.basename(s.project);
-          const prefixLen = cfgLabel.length + 4 + projLabel.length + 3; // "[x] proj › "
-          const titleW    = Math.max(4, W - prefixLen - dateW);
-          const title     = s.title || (s.firstMessage ? `(${s.firstMessage})` : '(untitled)');
+      // Row 4+: path input + Tab completion candidates (input step only)
+      let listStart = 4;
+      if (this.moveStep === 'input') {
+        out.push(mv(4, 1), clrLine);
+        out.push(`  ${fgc('93', 'New path:')} ${this.moveInput}█`);
+        out.push(mv(5, 1), clrLine);
+
+        if (this.moveCompletions.length > 1) {
+          // Show completion candidates (read-only, just for reference)
+          const cols = Math.max(1, Math.floor((W - 2) / 22));
+          const rows = Math.ceil(this.moveCompletions.length / cols);
+          for (let r = 0; r < Math.min(rows, this.h - 8); r++) {
+            out.push(mv(r + 5, 1), clrLine);
+            const row = this.moveCompletions.slice(r * cols, r * cols + cols)
+              .map(n => pad(n, 22)).join(' ');
+            out.push(`  ` + dim(row));
+          }
+          listStart = this.h; // no session list while completing
+        } else {
+          out.push(dim(`  Tab to complete path`));
+          listStart = 6;
+        }
+      }
+
+      // Scrollable item list
+      const maxVis = this.h - listStart - 1;
+      const items  = this.moveStep === 'input' ? [] : this.moveItems;
+      if (this.moveSelIdx < this.moveScroll) this.moveScroll = this.moveSelIdx;
+      if (this.moveSelIdx >= this.moveScroll + maxVis) this.moveScroll = this.moveSelIdx - maxVis + 1;
+
+      for (let r = 0; r < maxVis; r++) {
+        out.push(mv(listStart + r, 1), clrLine);
+        const item = items[this.moveScroll + r];
+        if (!item) continue;
+        const isSel  = (this.moveScroll + r) === this.moveSelIdx;
+        const label  = item.type === 'same'    ? dim(item.label)
+                     : item.type === 'new'     ? fgc('93', item.label)
+                     : item.type === 'profile' ? bold(fgc('96', item.label))
+                     : fgc('33', item.label);
+        const plain  = `    ${item.label}`;
+        out.push(isSel ? inv(pad(plain, W)) : `    ${label}`);
+      }
+
+    } else {
+      // ── Session list ──────────────────────────────────────────────────────────
+      const visible = this.items.slice(this.scrollTop, this.scrollTop + this.listH);
+      let si = this.items.slice(0, this.scrollTop).filter(i => i.type === 'session').length;
+
+      for (let r = 0; r < this.listH; r++) {
+        out.push(mv(r + 2, 1), clrLine);
+        const item = visible[r];
+        if (!item) continue;
+
+        if (item.type === 'config') {
+          out.push(bold(fgc('96', `  [${item.label}]`)));
+
+        } else {
+          const s       = item.session;
+          const isSel   = si === this.selIdx;
+          const title   = s.title || (s.firstMessage ? `(${s.firstMessage})` : '(untitled)');
+          const project = shortenPath(s.project);
+          const dateStr = fmtDate(s.lastModified);
+
+          const cfgTag  = this.search ? `[${shortConfig(s.configDir)}] ` : '';
+          const cfgLen  = cfgTag.length;
+          const dateW   = dateStr.length;
+          const avail   = Math.max(12, W - 2 - cfgLen - 2 - 2 - dateW);
+          const titleW  = Math.floor(avail * 0.5);
+          const projectW = avail - titleW;
+
           if (isSel) {
-            const plain = `  [${cfgLabel}] ${projLabel} › ${trunc(title, titleW).padEnd(titleW)}  ${dateStr}`;
+            const plain = `  ${cfgTag}${trunc(title, titleW).padEnd(titleW)}  ${trunc(project, projectW).padEnd(projectW)}  ${dateStr}`;
             out.push(inv(pad(plain, W)));
           } else {
             out.push(
-              `  ${fgc('96', `[${cfgLabel}]`)} ${fgc('33', projLabel)} ${dim('›')} ` +
-              (s.title ? fgc('92', trunc(title, titleW)) : dim(trunc(title, titleW))) +
-              `  ${dim(dateStr)}`
-            );
-          }
-
-        } else {
-          // Grouped mode: title  date
-          const titleW = Math.max(4, W - 6 - dateW);
-          const title  = s.title || (s.firstMessage ? `(${s.firstMessage})` : '(untitled)');
-          if (isSel) {
-            out.push(inv(pad(`    ${trunc(title, titleW).padEnd(titleW)}  ${dateStr}`, W)));
-          } else {
-            out.push(
-              `    ` +
+              `  ${this.search ? fgc('96', cfgTag) : ''}` +
               (s.title ? fgc('92', pad(trunc(title, titleW), titleW)) : dim(pad(trunc(title, titleW), titleW))) +
+              `  ${fgc('33', pad(trunc(project, projectW), projectW))}` +
               `  ${dim(dateStr)}`
             );
           }
+          si++;
         }
-        si++;
       }
     }
 
@@ -461,8 +629,9 @@ class TUI {
       const name = sel?.title || sel?.firstMessage?.slice(0, 35) || 'this session';
       footer = `  Delete "${trunc(name, 35)}"?  y=yes  n/Esc=cancel`;
     } else if (this.mode === 'move') {
-      const choices = this.moveTargets.map((t, i) => `${i + 1}=${t.label}`).join('   ');
-      footer = `  Move to:  ${choices}   Esc=cancel`;
+      if (this.moveStep === 'profile') footer = `  ↑↓/jk=navigate  Enter=select profile  Esc=cancel`;
+      else if (this.moveStep === 'input') footer = `  Tab=complete path  Enter=confirm  Esc=back`;
+      else footer = `  ↑↓/jk=navigate  Enter=select  Esc=back to profiles`;
     } else if (this.mode === 'search') {
       footer = `  SEARCH: ${this.search}█  Esc=cancel  Enter=done`;
     } else if (this.statusMsg) {
@@ -494,23 +663,45 @@ class TUI {
       return true;
     }
 
-    // Move target selection
+    // Move picker (unified: profile → folder → input)
     if (this.mode === 'move') {
-      if (key === '\x1b' || key === 'n') { this.mode = null; return true; }
-      const idx = parseInt(key, 10) - 1;
-      if (idx >= 0 && idx < this.moveTargets.length) {
-        const s = this.selectedSession();
-        const target = this.moveTargets[idx];
-        this.mode = null;
-        if (s) {
-          try {
-            moveSession(s, target.configDirPath);
-            this.setStatus(`Moved to [${target.label}]`);
-            this.rebuild();
-          } catch (e) {
-            this.setStatus(`Move failed: ${e.message}`, 4000);
-          }
+      if (this.moveStep === 'input') {
+        if (key === '\x1b') {
+          this.moveStep = 'folder'; this.moveCompletions = []; this.moveItems = this._buildMoveItems();
+        } else if (key === '\t') {
+          const { completed, matches } = tabComplete(this.moveInput || '~/');
+          this.moveInput       = completed;
+          this.moveCompletions = matches.length > 1 ? matches : [];
+        } else if (key === '\x7f') {
+          this.moveInput = this.moveInput.slice(0, -1);
+          this.moveCompletions = [];
+        } else if (key === '\r') {
+          const raw = this.moveInput.trim();
+          this.moveCompletions = [];
+          if (raw) this._doMove(encodePathToDir(raw.replace(/^~/, os.homedir())));
+          else     this.moveStep = 'folder';
+        } else if (key.length === 1 && key >= ' ') {
+          this.moveInput += key;
+          this.moveCompletions = [];
         }
+        return true;
+      }
+
+      // profile or folder step — arrow nav + Enter
+      const navSize = this.moveItems.length;
+      if (key === '\x1b') {
+        if (this.moveStep === 'folder') { this.moveStep = 'profile'; this.moveItems = this._buildMoveItems(); this.moveSelIdx = 0; this.moveScroll = 0; }
+        else { this.mode = null; }
+        return true;
+      }
+      if (key === '\x1b[A' || key === 'k') { this.moveSelIdx = Math.max(0, this.moveSelIdx - 1); return true; }
+      if (key === '\x1b[B' || key === 'j') { this.moveSelIdx = Math.min(navSize - 1, this.moveSelIdx + 1); return true; }
+      if (key === '\r') {
+        const item = this.moveItems[this.moveSelIdx];
+        if (!item) return true;
+        if (item.type === 'profile') { this._enterFolderStep(item.configDirPath); return true; }
+        if (item.type === 'new')     { this.moveStep = 'input'; this.moveInput = '~/'; this.moveCompletions = []; return true; }
+        this._doMove(item.dirName);
       }
       return true;
     }
@@ -551,14 +742,8 @@ class TUI {
     }
     else if (key === 'd') { if (this.selectedSession()) this.mode = 'delete'; }
     else if (key === 'm') {
-      const s = this.selectedSession();
-      if (s) {
-        const targets = discoverConfigDirs()
-          .filter(d => d !== s.configDirPath)
-          .map(d => ({ label: shortConfig(path.basename(d)), configDirPath: d }));
-        if (targets.length) { this.moveTargets = targets; this.mode = 'move'; }
-        else this.setStatus('No other config profiles found.');
-      }
+      if (this.selectedSession()) this._enterMove();
+      else this.setStatus('No session selected.');
     }
     else if (key === '\x1b[A' || key === 'k') move(-1);
     else if (key === '\x1b[B' || key === 'j') move(+1);
