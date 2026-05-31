@@ -26,6 +26,9 @@
     "url": "https://github.com/vinh0809it/claude-sessions/issues"
   },
   "homepage": "https://github.com/vinh0809it/claude-sessions#readme",
+  "scripts": {
+    "test": "node --test test/*.js"
+  },
   "files": [
     "index.js"
   ]
