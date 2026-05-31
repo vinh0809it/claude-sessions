@@ -11,7 +11,7 @@ A zero-dependency terminal UI for browsing, resuming, moving, and deleting [Clau
   [.claude-company]
     /home/you/projects/acme/api
     payment-status-check                  2026-05-11 16:10
-  ↑↓/jk=nav  /=search  Enter=open  m=move  d=del  q=quit  [42]
+  ↑↓/jk=nav  /=search  Enter=open  n=new  m=move  d=del  q=quit  [42]
 ```
 
 ## Features
@@ -19,7 +19,8 @@ A zero-dependency terminal UI for browsing, resuming, moving, and deleting [Clau
 - **Auto-discovers** all `~/.claude*` config directories — works with multiple Claude Code profiles out of the box
 - **Live search** across session titles and first messages; results show `[profile] project ›` inline
 - **Open in new tab** — press Enter to resume a session in a new terminal tab (kitty, WezTerm, tmux, or custom)
-- **Move sessions** between profiles with a single keypress
+- **New session** — press `n` to open a fresh Claude session in any profile and folder
+- **Move sessions** — press `m` to move a session to a different profile, an existing folder, or a custom path
 - **Delete sessions** with confirmation (removes both the `.jsonl` file and companion directory)
 - **Filter by folder** — pass a path to scope the list to sessions in that directory tree
 - Zero runtime dependencies — pure Node.js stdlib
@@ -61,7 +62,8 @@ claude-sessions -d ~/.claude-work  # Scan a specific config dir
 | `/` | Search by title or message content |
 | `Esc` | Clear search |
 | `Enter` | Open session in a new terminal tab |
-| `m` | Move session to another profile |
+| `n` | New session (choose profile + folder) |
+| `m` | Move session to another profile / folder |
 | `d` | Delete session (asks confirmation) |
 | `q` / `Ctrl-C` | Quit |
 
@@ -75,7 +77,7 @@ alias claude-main='CLAUDE_CONFIG_DIR=~/.claude-main claude'
 alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work claude'
 ```
 
-Sessions are grouped by profile in the UI. Press `m` to move a session from one profile to another.
+Sessions are grouped by profile in the UI. Press `m` to move a session to a different profile or folder (including a custom typed path). Press `n` to open a new session in any profile and folder.
 
 ## Open in new tab
 
@@ -120,6 +122,7 @@ git clone https://github.com/vinh0809it/claude-sessions
 cd claude-sessions
 node index.js          # run directly
 npm link               # install globally from source
+npm test               # run the test suite (Node built-in test runner, no extra deps)
 ```
 
 ## License
