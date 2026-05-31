@@ -29,10 +29,10 @@ A zero-dependency terminal UI for browsing, resuming, moving, and deleting [Clau
 
 ```sh
 # Global install (recommended)
-npm install -g cli-claude-sessions
+npm install -g @vinh0809it/claude-sessions
 
 # Or run without installing
-npx cli-claude-sessions
+npx @vinh0809it/claude-sessions
 
 # Or manually
 curl -fsSL https://raw.githubusercontent.com/vinh0809it/claude-sessions/main/index.js \

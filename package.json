@@ -1,5 +1,5 @@
 {
-  "name": "cli-claude-sessions",
+  "name": "@vinh0809it/claude-sessions",
   "version": "0.1.0",
   "description": "Terminal UI for browsing, resuming, moving, and deleting Claude Code sessions",
   "bin": {
