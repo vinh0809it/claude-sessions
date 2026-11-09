@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Fast terminal UI for browsing, previewing, resuming, renaming, moving, and deleting Claude Code sessions",
   "bin": {
-    "claude-sessions": "./index.js"
+    "claude-sessions": "index.js"
   },
   "engines": {
     "node": ">=18"
