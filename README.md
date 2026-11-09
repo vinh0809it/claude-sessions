@@ -1,28 +1,28 @@
 # claude-sessions
 
-A zero-dependency terminal UI for browsing, resuming, moving, and deleting [Claude Code](https://claude.ai/code) sessions.
+A zero-dependency terminal UI for browsing, previewing, resuming, renaming, moving, and deleting [Claude Code](https://claude.ai/code) sessions.
 
 ```
   claude-sessions                         path:/home/you/projects/acme
   [.claude-main]
-    /home/you/projects/acme/api
-  > booking-overlap-check                 2026-05-11 23:00
-    ekyc-japan-fallback                   2026-05-11 22:52
+  > booking-overlap-check          ~/projects/acme/api   12M  2026-05-11 23:00
+    ekyc-japan-fallback            ~/projects/acme/api  840K  2026-05-11 22:52
   [.claude-company]
-    /home/you/projects/acme/api
-    payment-status-check                  2026-05-11 16:10
-  ↑↓/jk=nav  /=search  Enter=open  n=new  m=move  d=del  q=quit  [42]
+    payment-status-check           ~/projects/acme/api  3.1M  2026-05-11 16:10
+  Enter=open o=here /=search p=preview r=rename m=move d=del ?=help q=quit  [42]
 ```
 
 ## Features
 
-- **Auto-discovers** all `~/.claude*` config directories — works with multiple Claude Code profiles out of the box
-- **Live search** across session titles and first messages; results show `[profile] project ›` inline
-- **Open in new tab** — press Enter to resume a session in a new terminal tab (kitty, WezTerm, tmux, or custom)
-- **New session** — press `n` to open a fresh Claude session in any profile and folder
-- **Move sessions** — press `m` to move a session to a different profile, an existing folder, or a custom path
-- **Delete sessions** with confirmation (removes both the `.jsonl` file and companion directory)
-- **Filter by folder** — pass a path to scope the list to sessions in that directory tree
+- **Fast** — reads only the head and tail of each session file and caches the result, so even multi-GB histories load in well under a second
+- **Auto-discovers** all `~/.claude*` config directories and `$CLAUDE_CONFIG_DIR` — multiple Claude Code profiles just work
+- **Live search** across session titles, first messages and project paths
+- **Preview** — press `p` to see the last few messages of the selected session
+- **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2 or Terminal.app, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
+- **Rename** — press `r`; writes the same record `/rename` does
+- **Move** sessions to another profile, an existing folder, or a typed path
+- **Delete safely** — sessions go to a trash folder; mark several with `Space` to delete in bulk; `--empty-trash` frees the space
+- **Sort** by date, size or name — find the huge sessions eating your disk
 - Zero runtime dependencies — pure Node.js stdlib
 
 ## Install
@@ -50,7 +50,11 @@ claude-sessions --named-only       # Only show /rename'd sessions
 claude-sessions --list             # Plain list (pipe-friendly)
 claude-sessions --json             # JSON output
 claude-sessions -d ~/.claude-work  # Scan a specific config dir
+claude-sessions --empty-trash      # Permanently remove deleted sessions
+claude-sessions --no-cache         # Ignore the metadata cache
 ```
+
+Tip: `alias ccs=claude-sessions`
 
 ### TUI keys
 
@@ -59,12 +63,18 @@ claude-sessions -d ~/.claude-work  # Scan a specific config dir
 | `↑` `↓` / `j` `k` | Navigate |
 | `PgUp` `PgDn` | Page up / down |
 | `g` / `G` | Jump to top / bottom |
-| `/` | Search by title or message content |
-| `Esc` | Clear search |
-| `Enter` | Open session in a new terminal tab |
+| `/` | Search by title, message or path |
+| `Esc` | Clear search and marks |
+| `Enter` | Open session (new tab if supported, otherwise here) |
+| `o` | Open session in this terminal |
+| `p` | Toggle preview of recent messages |
+| `r` | Rename session |
+| `s` | Cycle sort: date / size / name |
+| `Space` | Mark session for bulk delete |
 | `n` | New session (choose profile + folder) |
 | `m` | Move session to another profile / folder |
-| `d` | Delete session (asks confirmation) |
+| `d` | Move marked (or selected) sessions to trash |
+| `?` | Help |
 | `q` / `Ctrl-C` | Quit |
 
 ## Multiple profiles
@@ -79,16 +89,20 @@ alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work claude'
 
 Sessions are grouped by profile in the UI. Press `m` to move a session to a different profile or folder (including a custom typed path). Press `n` to open a new session in any profile and folder.
 
-## Open in new tab
+## Opening sessions
 
-Press `Enter` on any session to resume it in a new terminal tab. The terminal is auto-detected:
+`Enter` opens the session in a new tab when the terminal supports it, and otherwise runs `claude -r <id>` right in the current terminal — when Claude exits you're back in the list.
 
 | Terminal | Support | Notes |
 |----------|---------|-------|
-| **Kitty** | ✅ | Requires `allow_remote_control yes` in `kitty.conf` |
-| **WezTerm** | ✅ | Uses `wezterm cli spawn` |
-| **tmux** | ✅ | Opens a new window in the current session |
-| Others | ⚙️ | Use `CLAUDE_SESSIONS_OPEN_CMD` |
+| **Kitty** | ✅ new tab | Requires `allow_remote_control yes` in `kitty.conf` |
+| **WezTerm** | ✅ new tab | Uses `wezterm cli spawn` |
+| **tmux** | ✅ new window | In the current session |
+| **iTerm2** | ✅ new tab | Via `osascript` |
+| **Terminal.app** | ✅ new window | Via `osascript` |
+| Anything else | ✅ same terminal | GNOME Terminal, Ghostty, VS Code, … |
+
+Set `CLAUDE_SESSIONS_TERMINAL=here` to always resume in place.
 
 ### Custom open command
 
@@ -101,17 +115,23 @@ export CLAUDE_SESSIONS_OPEN_CMD="ghostty --command=bash -i -c %cmd%"
 # iTerm2 via osascript
 export CLAUDE_SESSIONS_OPEN_CMD="osascript -e 'tell app \"iTerm\" to create window with default profile command \"bash -i -c %cmd%\"'"
 
-# Force a specific supported terminal
+# Force a specific mode: kitty | wezterm | tmux | iterm2 | apple-terminal | here
 export CLAUDE_SESSIONS_TERMINAL=wezterm
 ```
 
 ## How sessions are stored
 
-Claude Code stores sessions in `~/.claude*/projects/<encoded-path>/<uuid>.jsonl`. Each line is a JSON record. `claude-sessions` reads:
+Claude Code stores sessions in `~/.claude*/projects/<encoded-path>/<uuid>.jsonl`, where `<encoded-path>` is the project path with every non-alphanumeric character replaced by `-`. Each line is a JSON record. `claude-sessions` reads:
 
-- `type: "custom-title"` → the name set by `/rename`
-- First `type: "user"` message → shown as a fallback title
-- `cwd` field → the actual project path (used for filtering)
+- `type: "custom-title"` → the name set by `/rename` (the last one wins)
+- First real `type: "user"` message → shown as a fallback title
+- `cwd` field → the project path (used for filtering and resuming)
+
+Only the first and last 256 KB of each file are read. Results are cached in `~/.cache/claude-sessions/index.json` (or `$XDG_CACHE_HOME`), keyed by file size and mtime.
+
+Deleted sessions are moved to `<config dir>/.claude-sessions-trash/`; run `claude-sessions --empty-trash` to remove them for good.
+
+> **Renaming a session that is open in Claude Code:** Claude keeps re-writing its own title, so rename it from inside that session with `/rename` instead.
 
 ## Contributing
 

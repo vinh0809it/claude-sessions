@@ -12,7 +12,19 @@ const {
   resolveProjectPath,
   moveSession,
   readSession,
+  readRecentMessages,
+  renameSession,
+  deleteSessionFiles,
+  emptyTrash,
+  scanConfigDir,
+  sortSessions,
+  projectDirNameFor,
+  detectTerminal,
+  parseArgs,
+  cache,
 } = require('../index.js');
+
+cache.enabled = false; // never touch the real ~/.cache from tests
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +54,35 @@ describe('encodePathToDir', () => {
 
   test('no slashes: string unchanged', () => {
     assert.equal(encodePathToDir('foo'), 'foo');
+  });
+
+  test('dots, underscores and spaces also become hyphens (matches Claude Code)', () => {
+    assert.equal(encodePathToDir('/home/u/.local/my_app v2'), '-home-u--local-my-app-v2');
+  });
+
+  test('windows paths', () => {
+    assert.equal(encodePathToDir('C:\\Users\\me\\proj'), 'C--Users-me-proj');
+  });
+});
+
+describe('projectDirNameFor', () => {
+  let root;
+  before(() => { root = makeTmp(['projects']); });
+  after(() =>  { rmTmp(root); });
+
+  test('short path: plain encoding', () => {
+    assert.equal(projectDirNameFor(root, '/a/b.c'), '-a-b-c');
+  });
+
+  test('long path: reuses existing folder with the same 200-char prefix', () => {
+    const long = '/' + 'x'.repeat(250);
+    const existing = encodePathToDir(long).slice(0, 200) + '-abc123';
+    fs.mkdirSync(path.join(root, 'projects', existing));
+    assert.equal(projectDirNameFor(root, long), existing);
+  });
+
+  test('long path with no existing folder: throws', () => {
+    assert.throws(() => projectDirNameFor(root, '/' + 'y'.repeat(250)), /too long/);
   });
 });
 
@@ -138,6 +179,39 @@ describe('readSession', () => {
     assert.equal(firstUserMessage, null);
     assert.equal(cwd, null);
     assert.equal(timestamp, null);
+  });
+
+  test('skips meta records and <system-reminder> wrappers for firstMessage', () => {
+    const f = path.join(root, 'session5.jsonl');
+    writeJsonl(f, [
+      { type: 'user', isMeta: true, message: { content: 'meta stuff' }, cwd: '/p' },
+      { type: 'user', message: { content: '<system-reminder>x</system-reminder>' } },
+      { type: 'user', message: { content: [{ type: 'text', text: '<command-name>/rename</command-name>' }, { type: 'text', text: 'real question' }] } },
+    ]);
+    assert.equal(readSession(f).firstUserMessage, 'real question');
+  });
+
+  test('keeps user prompts that merely start with "<" (pasted HTML)', () => {
+    const f = path.join(root, 'session6.jsonl');
+    writeJsonl(f, [{ type: 'user', message: { content: '<div>why is this broken</div>' } }]);
+    assert.equal(readSession(f).firstUserMessage, '<div>why is this broken</div>');
+  });
+
+  test('large file: takes the last custom-title from the tail', () => {
+    const f = path.join(root, 'big.jsonl');
+    const filler = { type: 'assistant', message: { content: [{ type: 'text', text: 'z'.repeat(1000) }] } };
+    writeJsonl(f, [
+      { type: 'custom-title', customTitle: 'old' },
+      { type: 'user', message: { content: 'first' }, cwd: '/p', timestamp: 1 },
+      ...Array(800).fill(filler),
+      { type: 'custom-title', customTitle: 'new' },
+      ...Array(10).fill(filler),
+    ]);
+    assert.ok(fs.statSync(f).size > 512 * 1024, 'file exceeds head+tail window');
+    const r = readSession(f);
+    assert.equal(r.title, 'new');
+    assert.equal(r.firstUserMessage, 'first');
+    assert.equal(r.cwd, '/p');
   });
 
   test('extracts text from array content blocks', () => {
@@ -296,5 +370,136 @@ describe('moveSession', () => {
     const newCompanion = session.jsonlPath.replace('.jsonl', '');
     assert.ok(fs.existsSync(newCompanion), 'companion dir moved');
     assert.ok(fs.existsSync(path.join(newCompanion, 'artifact.txt')), 'companion contents intact');
+  });
+});
+
+// ── readRecentMessages ────────────────────────────────────────────────────────
+
+describe('readRecentMessages', () => {
+  test('returns last N user/assistant texts, skipping tool results', () => {
+    const root = makeTmp([]);
+    try {
+      const f = path.join(root, 's.jsonl');
+      writeJsonl(f, [
+        { type: 'user', message: { content: 'q1' } },
+        { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: 'a1' }] } },
+        { type: 'user', message: { content: [{ type: 'tool_result', content: 'ignored' }] } },
+        { type: 'user', message: { content: 'q2' } },
+      ]);
+      assert.deepEqual(readRecentMessages(f, 2), [{ role: 'assistant', text: 'a1' }, { role: 'user', text: 'q2' }]);
+    } finally { rmTmp(root); }
+  });
+});
+
+// ── renameSession ─────────────────────────────────────────────────────────────
+
+describe('renameSession', () => {
+  test('appends a custom-title record that readSession picks up', () => {
+    const root = makeTmp([]);
+    try {
+      const f = path.join(root, 's.jsonl');
+      fs.writeFileSync(f, JSON.stringify({ type: 'user', message: { content: 'hi' } })); // no trailing newline
+      const s = { jsonlPath: f, sessionId: 's' };
+      renameSession(s, '  my name ');
+      assert.equal(s.title, 'my name');
+      assert.equal(readSession(f).title, 'my name');
+      assert.equal(fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).length, 2);
+    } finally { rmTmp(root); }
+  });
+
+  test('rejects empty title', () => {
+    assert.throws(() => renameSession({ jsonlPath: '/x', sessionId: 'x' }, '   '), /empty/);
+  });
+});
+
+// ── delete / trash ────────────────────────────────────────────────────────────
+
+describe('deleteSessionFiles + emptyTrash', () => {
+  test('moves jsonl and companion dir to trash, emptyTrash frees it', () => {
+    const root = makeTmp([]);
+    try {
+      const cfg = path.join(root, '.claude');
+      const jsonlPath = path.join(cfg, 'projects', '-p', 'abc.jsonl');
+      writeJsonl(jsonlPath, [{ type: 'user', message: { content: 'hi' } }]);
+      fs.mkdirSync(path.join(cfg, 'projects', '-p', 'abc'));
+      fs.writeFileSync(path.join(cfg, 'projects', '-p', 'abc', 'x.txt'), 'data');
+
+      deleteSessionFiles({ jsonlPath, configDirPath: cfg });
+
+      assert.ok(!fs.existsSync(jsonlPath));
+      assert.ok(fs.existsSync(path.join(cfg, '.claude-sessions-trash', '-p', 'abc.jsonl')));
+      assert.ok(fs.existsSync(path.join(cfg, '.claude-sessions-trash', '-p', 'abc', 'x.txt')));
+      assert.ok(emptyTrash([cfg]) > 0);
+      assert.ok(!fs.existsSync(path.join(cfg, '.claude-sessions-trash')));
+    } finally { rmTmp(root); }
+  });
+});
+
+// ── scanConfigDir ─────────────────────────────────────────────────────────────
+
+describe('scanConfigDir', () => {
+  test('uses the folder path for sessions whose cwd drifted, filters by path', () => {
+    const root = makeTmp([]);
+    try {
+      const cfg = path.join(root, '.claude');
+      const proj = '/home/u/my.app';
+      const dir = path.join(cfg, 'projects', encodePathToDir(proj));
+      writeJsonl(path.join(dir, 'a.jsonl'), [{ type: 'user', message: { content: 'a' }, cwd: proj }]);
+      writeJsonl(path.join(dir, 'b.jsonl'), [{ type: 'user', message: { content: 'b' }, cwd: '/elsewhere' }]);
+      const all = scanConfigDir(cfg, null);
+      assert.equal(all.length, 2);
+      assert.ok(all.every(s => s.project === proj));
+      assert.ok(all.every(s => typeof s.size === 'number' && s.size > 0));
+      assert.equal(scanConfigDir(cfg, '/home/u/my.app').length, 2);
+      assert.equal(scanConfigDir(cfg, '/home/u/my').length, 0, 'prefix of a folder name is not a match');
+    } finally { rmTmp(root); }
+  });
+});
+
+// ── sortSessions ──────────────────────────────────────────────────────────────
+
+describe('sortSessions', () => {
+  const mk = (configDir, title, size, t) => ({ configDir, title, size, lastModified: new Date(t) });
+  const list = [mk('.claude-a', 'b', 1, 3), mk('.claude-a', 'a', 5, 1), mk('.claude', 'c', 9, 2)];
+
+  test('keeps profile grouping order, sorts within', () => {
+    assert.deepEqual(sortSessions(list, 'size').map(s => s.title), ['a', 'b', 'c']);
+    assert.deepEqual(sortSessions(list, 'name').map(s => s.title), ['a', 'b', 'c']);
+    assert.deepEqual(sortSessions(list, 'date').map(s => s.title), ['b', 'a', 'c']);
+  });
+});
+
+// ── detectTerminal / parseArgs ────────────────────────────────────────────────
+
+describe('detectTerminal', () => {
+  test('falls back to opening in this terminal', () => {
+    assert.equal(detectTerminal({}), 'here');
+  });
+  test('detects kitty, tmux, iTerm, Apple Terminal, honours override', () => {
+    assert.equal(detectTerminal({ KITTY_WINDOW_ID: '1' }), 'kitty');
+    assert.equal(detectTerminal({ TMUX: '/tmp/x' }), 'tmux');
+    assert.equal(detectTerminal({ TERM_PROGRAM: 'iTerm.app' }), 'iterm2');
+    assert.equal(detectTerminal({ TERM_PROGRAM: 'Apple_Terminal' }), 'apple-terminal');
+    assert.equal(detectTerminal({ TMUX: 'x', CLAUDE_SESSIONS_TERMINAL: 'here' }), 'here');
+  });
+});
+
+describe('parseArgs', () => {
+  test('expands ~ in the folder filter', () => {
+    assert.equal(parseArgs(['~/x']).filterPath, path.join(os.homedir(), 'x'));
+  });
+  test('flags', () => {
+    const o = parseArgs(['--empty-trash', '--no-cache', '--named-only']);
+    assert.ok(o.emptyTrash && o.noCache && o.namedOnly);
+  });
+});
+
+describe('splitKeys', () => {
+  const { splitKeys } = require('../index.js');
+  test('splits pasted text, keeps escape sequences whole', () => {
+    assert.deepEqual(splitKeys('ab\x1b[A\x1b[5~\r\x7f\x1b'), ['a', 'b', '\x1b[A', '\x1b[5~', '\r', '\x7f', '\x1b']);
+  });
+  test('keeps multi-byte characters intact', () => {
+    assert.deepEqual(splitKeys('tên😀'), ['t', 'ê', 'n', '😀']);
   });
 });
