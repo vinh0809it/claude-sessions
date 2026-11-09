@@ -503,3 +503,13 @@ describe('splitKeys', () => {
     assert.deepEqual(splitKeys('tên😀'), ['t', 'ê', 'n', '😀']);
   });
 });
+
+describe('wrapWords', () => {
+  const { wrapWords } = require('../index.js');
+  test('breaks at spaces', () => {
+    assert.deepEqual(wrapWords('added a regression test', 12), ['added a', 'regression', 'test']);
+  });
+  test('splits words longer than the width', () => {
+    assert.deepEqual(wrapWords('abcdefghij x', 4), ['abcd', 'efgh', 'ij x']);
+  });
+});

@@ -1,0 +1,3 @@
+#!/bin/bash
+printf '\033[2J\033[H\r\n  \033[38;5;208m✻\033[0m \033[1mClaude Code\033[0m  \033[2mresumed session %s\033[0m\r\n\r\n  \033[2m%s\033[0m\r\n\r\n  \033[1m>\033[0m ' "$2" "${PWD/#$HOME/\~}"
+sleep 2.2

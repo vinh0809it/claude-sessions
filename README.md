@@ -2,15 +2,7 @@
 
 A zero-dependency terminal UI for browsing, previewing, resuming, renaming, moving, and deleting [Claude Code](https://claude.ai/code) sessions.
 
-```
-  claude-sessions                         path:/home/you/projects/acme
-  [.claude-main]
-  > booking-overlap-check          ~/projects/acme/api   12M  2026-05-11 23:00
-    ekyc-japan-fallback            ~/projects/acme/api  840K  2026-05-11 22:52
-  [.claude-company]
-    payment-status-check           ~/projects/acme/api  3.1M  2026-05-11 16:10
-  Enter=open o=here /=search p=preview r=rename m=move d=del ?=help q=quit  [42]
-```
+![claude-sessions demo](https://raw.githubusercontent.com/vinh0809it/claude-sessions/main/docs/demo.gif)
 
 ## Features
 
@@ -143,6 +135,7 @@ cd claude-sessions
 node index.js          # run directly
 npm link               # install globally from source
 npm test               # run the test suite (Node built-in test runner, no extra deps)
+scripts/demo/record.sh # re-record docs/demo.gif from fake sessions (needs Pillow + ffmpeg)
 ```
 
 ## License
