@@ -19,4 +19,5 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm test
-      - run: node index.js --version
+      - run: node bin/claude-sessions.js --version
+      - run: node bin/claude-sessions.js --help

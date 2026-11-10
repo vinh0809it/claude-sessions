@@ -25,10 +25,6 @@ npm install -g @vinh0809it/claude-sessions
 
 # Or run without installing
 npx @vinh0809it/claude-sessions
-
-# Or manually
-curl -fsSL https://raw.githubusercontent.com/vinh0809it/claude-sessions/main/index.js \
-  -o ~/.local/bin/claude-sessions && chmod +x ~/.local/bin/claude-sessions
 ```
 
 Requires Node.js 18+.
@@ -130,15 +126,34 @@ Deleted sessions are moved to `<config dir>/.claude-sessions-trash/`; run `claud
 
 ## Contributing
 
-Issues and PRs welcome. The entire tool is a single `index.js` with no build step.
+Issues and PRs welcome. Plain Node.js (CommonJS), no dependencies and no build step.
 
 ```sh
 git clone https://github.com/vinh0809it/claude-sessions
 cd claude-sessions
-node index.js          # run directly
-npm link               # install globally from source
-npm test               # run the test suite (Node built-in test runner, no extra deps)
-scripts/demo/record.sh # re-record docs/demo.gif from fake sessions (needs Pillow + ffmpeg)
+node bin/claude-sessions.js   # run directly
+npm link                      # install globally from source
+npm test                      # run the test suite (Node built-in test runner)
+scripts/demo/record.sh        # re-record docs/demo.gif from fake sessions (needs Pillow + ffmpeg)
+```
+
+```
+bin/claude-sessions.js   entry point
+lib/
+  cli.js                 argument handling, --list / --json output
+  config.js              usage text, flags, config dir discovery
+  sessions.js            reading session files, metadata cache, scanning
+  operations.js          move, rename, delete to trash, empty trash
+  launch.js              terminal detection, opening sessions
+  paths.js               folder-name encoding, path completion
+  format.js              dates, sizes, paths for display
+  ansi.js                escape sequences and colors
+  tui/
+    app.js               the full-screen browser
+    picker.js            profile → folder → path picker (move, new)
+    line-input.js        editable text field
+    keys.js              key codes and input splitting
+test/                    one file per module
 ```
 
 ## License

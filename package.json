@@ -1,9 +1,9 @@
 {
   "name": "@vinh0809it/claude-sessions",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Fast terminal UI for browsing, previewing, resuming, renaming, moving, and deleting Claude Code sessions",
   "bin": {
-    "claude-sessions": "index.js"
+    "claude-sessions": "bin/claude-sessions.js"
   },
   "engines": {
     "node": ">=18"
@@ -27,9 +27,10 @@
   },
   "homepage": "https://github.com/vinh0809it/claude-sessions#readme",
   "scripts": {
-    "test": "node --test test/*.js"
+    "test": "node --test test/*.test.js"
   },
   "files": [
-    "index.js"
+    "bin",
+    "lib"
   ]
 }
