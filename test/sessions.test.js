@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { makeTmp, rmTmp, writeJsonl } = require('./support/helpers');
-const { readSession, readRecentMessages, scanConfigDir, sortSessions } = require('../lib/sessions');
+const { readSession, readRecentMessages, scanConfigDir, sortSessions, listProjectFolders } = require('../lib/sessions');
 const { encodePathToDir } = require('../lib/paths');
 
 describe('readSession', () => {
@@ -137,5 +137,24 @@ describe('sortSessions', () => {
     assert.deepEqual(sortSessions(list, 'size').map(s => s.title), ['a', 'b', 'c']);
     assert.deepEqual(sortSessions(list, 'name').map(s => s.title), ['a', 'b', 'c']);
     assert.deepEqual(sortSessions(list, 'date').map(s => s.title), ['b', 'a', 'c']);
+  });
+});
+
+describe('listProjectFolders', () => {
+  let root;
+  before(() => { root = makeTmp([]); });
+  after(() => { rmTmp(root); });
+
+  test('uses the cwd that matches the folder, skips folders with unknown paths', () => {
+    const cfg  = path.join(root, '.claude');
+    const api  = '/work/api', vault = '/notes/vault';
+    const apiDir = path.join(cfg, 'projects', encodePathToDir(api));
+    // A session moved here from elsewhere keeps its old cwd; it must not name the folder.
+    writeJsonl(path.join(apiDir, 'moved.jsonl'), [{ type: 'user', cwd: vault, message: { content: 'hi' } }]);
+    writeJsonl(path.join(apiDir, 'native.jsonl'), [{ type: 'user', cwd: api, message: { content: 'hi' } }]);
+    fs.mkdirSync(path.join(cfg, 'projects', '-only-memory', 'memory'), { recursive: true });
+
+    const folders = listProjectFolders(cfg);
+    assert.deepEqual(folders.map(f => [f.projectDirName, f.projectPath]), [[encodePathToDir(api), api]]);
   });
 });

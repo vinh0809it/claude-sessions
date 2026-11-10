@@ -4,76 +4,55 @@ const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { makeTmp, rmTmp, writeJsonl } = require('./support/helpers');
 const { detectTerminal, resolveProjectPath, wtArgs } = require('../lib/launch');
+const { encodePathToDir } = require('../lib/paths');
 
 describe('resolveProjectPath', () => {
   let root;
   before(() => { root = makeTmp([]); });
   after(() =>  { rmTmp(root); });
 
-  test('returns hint file path when present and directory exists', () => {
-    const sessionDir   = path.join(root, 'hint-test');
-    const realProject  = path.join(root, 'real-project');
-    fs.mkdirSync(sessionDir,  { recursive: true });
-    fs.mkdirSync(realProject, { recursive: true });
-    const jsonlPath = path.join(sessionDir, 'abc.jsonl');
-    writeJsonl(jsonlPath, [{ cwd: '/stale/path', timestamp: 1 }]);
-    fs.writeFileSync(path.join(sessionDir, '.project-path'), realProject, 'utf8');
+  // A projects/ folder named the way Claude Code names it for `project`.
+  const folderFor = (project) => path.join(root, 'projects', encodePathToDir(project));
 
-    assert.equal(resolveProjectPath({ jsonlPath, project: '/stale/path' }), realProject);
+  test('uses the .project-path hint when that directory exists', () => {
+    const project = path.join(root, 'hinted');
+    fs.mkdirSync(project, { recursive: true });
+    const dir = path.join(root, 'projects', 'anything');
+    writeJsonl(path.join(dir, 'a.jsonl'), [{ cwd: '/stale/path' }]);
+    fs.writeFileSync(path.join(dir, '.project-path'), project, 'utf8');
+
+    assert.equal(resolveProjectPath({ jsonlPath: path.join(dir, 'a.jsonl') }), project);
   });
 
-  test('ignores hint file when path does not exist on disk', () => {
-    const sessionDir   = path.join(root, 'bad-hint');
-    const realProject  = path.join(root, 'real-proj-2');
-    fs.mkdirSync(sessionDir,  { recursive: true });
-    fs.mkdirSync(realProject, { recursive: true });
-    const jsonlPath = path.join(sessionDir, 'abc2.jsonl');
-    writeJsonl(jsonlPath, [{ cwd: realProject, timestamp: 1 }]);
-    // hint points to a path that does not exist
-    fs.writeFileSync(path.join(sessionDir, '.project-path'), '/ghost/path', 'utf8');
+  test('uses the cwd of a session that belongs to the folder, not one moved in', () => {
+    const project = path.join(root, 'native');
+    const other   = path.join(root, 'elsewhere');
+    fs.mkdirSync(project, { recursive: true });
+    fs.mkdirSync(other, { recursive: true });
+    const dir = folderFor(project);
+    writeJsonl(path.join(dir, 'moved.jsonl'),  [{ cwd: other }]);
+    writeJsonl(path.join(dir, 'native.jsonl'), [{ cwd: project }]);
 
-    // should fall through to sibling / session.project
-    const result = resolveProjectPath({ jsonlPath, project: realProject });
-    assert.equal(result, realProject);
+    assert.equal(resolveProjectPath({ jsonlPath: path.join(dir, 'moved.jsonl') }), project);
   });
 
-  test('uses sibling session cwd when no hint file', () => {
-    const sessionDir   = path.join(root, 'sibling-test');
-    const realProject  = path.join(root, 'sibling-project');
-    fs.mkdirSync(sessionDir,  { recursive: true });
-    fs.mkdirSync(realProject, { recursive: true });
-    const mainJsonl = path.join(sessionDir, 'main.jsonl');
-    const sibJsonl  = path.join(sessionDir, 'sibling.jsonl');
-    writeJsonl(mainJsonl, [{ cwd: '/stale', timestamp: 1 }]);
-    writeJsonl(sibJsonl,  [{ cwd: realProject, timestamp: 2 }]);
+  test('null when the directory is gone (resuming elsewhere would start a new session)', () => {
+    const project = path.join(root, 'deleted-project');
+    const dir = folderFor(project);
+    writeJsonl(path.join(dir, 'ghost.jsonl'), [{ cwd: project }]);
 
-    assert.equal(resolveProjectPath({ jsonlPath: mainJsonl, project: '/stale' }), realProject);
+    assert.equal(resolveProjectPath({ jsonlPath: path.join(dir, 'ghost.jsonl') }), null);
   });
 
-  test('falls back to session.project when it exists and no siblings', () => {
-    const sessionDir   = path.join(root, 'fallback-test');
-    const realProject  = path.join(root, 'fallback-project');
-    fs.mkdirSync(sessionDir,  { recursive: true });
-    fs.mkdirSync(realProject, { recursive: true });
-    const jsonlPath = path.join(sessionDir, 'solo.jsonl');
-    writeJsonl(jsonlPath, [{ cwd: realProject, timestamp: 1 }]);
+  test('null when only moved-in sessions exist and there is no hint', () => {
+    const elsewhere = path.join(root, 'elsewhere-2');
+    fs.mkdirSync(elsewhere, { recursive: true });
+    const dir = path.join(root, 'projects', '-no-match');
+    writeJsonl(path.join(dir, 'x.jsonl'), [{ cwd: elsewhere }]);
 
-    assert.equal(resolveProjectPath({ jsonlPath, project: realProject }), realProject);
-  });
-
-  test('falls back to home dir when all paths are missing', () => {
-    const sessionDir = path.join(root, 'missing-test');
-    fs.mkdirSync(sessionDir, { recursive: true });
-    const jsonlPath = path.join(sessionDir, 'ghost.jsonl');
-    writeJsonl(jsonlPath, [{ cwd: '/does/not/exist', timestamp: 1 }]);
-
-    assert.equal(
-      resolveProjectPath({ jsonlPath, project: '/also/does/not/exist' }),
-      os.homedir()
-    );
+    assert.equal(resolveProjectPath({ jsonlPath: path.join(dir, 'x.jsonl') }), null);
   });
 });
 
