@@ -29,7 +29,13 @@ class Screen:
             elif p==1: s.attr['b']=1
             elif p==2: s.attr['dim']=1
             elif p==7: s.attr['inv']=1
-            elif p==38 and i+2<len(ps) and ps[i+1]==5: s.attr['fg']=(215,119,87); i+=2
+            elif p==22: s.attr.pop('b',None); s.attr.pop('dim',None)
+            elif p==27: s.attr.pop('inv',None)
+            elif p==39: s.attr.pop('fg',None)
+            elif p==49: s.attr.pop('bg',None)
+            elif p in (38,48) and i+2<len(ps) and ps[i+1]==5:
+                n=ps[i+2]; v=8+10*(n-232) if n>=232 else 128
+                s.attr['fg' if p==38 else 'bg']=(v,v,v+10) if n>=232 else (215,119,87); i+=2
             elif p in PAL: s.attr['fg']=PAL[p]
             elif p in BGPAL: s.attr['bg']=BGPAL[p]
             i+=1
@@ -39,8 +45,8 @@ class Screen:
             p,cmd=m.group(1),m.group(2)
             if cmd=='H':
                 a=(p or '1;1').split(';'); s.r=int(a[0] or 1)-1; s.c=int(a[1] if len(a)>1 else 1)-1
-            elif cmd=='K':
-                for c in range(COLS): s.cells[s.r][c]=(' ',None)
+            elif cmd=='K':  # 2K = whole line, K = cursor to end (keeps current background)
+                for c in range(0 if p=='2' else s.c, COLS): s.cells[s.r][c]=(' ',None if p=='2' else {'bg':s.attr['bg']} if 'bg' in s.attr else None)
             elif cmd=='J': s.reset()
             elif cmd=='m': s.sgr(p)
     def image(s):
@@ -79,10 +85,10 @@ pump(1.2); shot(1.8)
 key('j',0.45); key('j',0.45); key('j',0.9)
 key('p',2.6)                         # preview
 key('k',1.6); key('k',1.8)
-key('/',0.5); typ('webhook'); shot(1.6); key('\r',0.6); key('\x1b',0.8)
+key('/',0.5); typ('webhook'); shot(1.6); key('\t',0.6); key('\x1b',0.8)
 key('s',1.3); key('s',1.6); key('s',0.6)   # sort size -> name -> date
 key('G',0.5); key('r',0.6)
-os.write(fd,b'\x7f'*60); typ('terminal-roguelike'); shot(0.8); key('\r',1.6)
+os.write(fd,b'\x7f'*60); typ('game/terminal-roguelike'); shot(0.8); key('\r',1.6)
 key('G',0.6); key(' ',0.6); key('k',0.3); key('k',0.3); key('k',0.3); key('k',0.4); key(' ',0.9); key('d',1.8); key('y',2.0)  # bulk delete
 key('g',0.6)
 os.write(fd,b'o'); time.sleep(0.6); shot(2.0); pump(2.2); shot(1.3)       # resume in place, come back

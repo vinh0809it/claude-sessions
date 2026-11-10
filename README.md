@@ -10,7 +10,7 @@ A zero-dependency terminal UI for browsing, previewing, resuming, renaming, movi
 - **Auto-discovers** all `~/.claude*` config directories and `$CLAUDE_CONFIG_DIR` — multiple Claude Code profiles just work
 - **Live search** across session titles, first messages and project paths
 - **Preview** — press `p` to see the last few messages of the selected session
-- **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2 or Terminal.app, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
+- **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2, Terminal.app or Windows Terminal, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
 - **Rename** — press `r`; writes the same record `/rename` does
 - **Move** sessions to another profile, an existing folder, or a typed path
 - **Delete safely** — sessions go to a trash folder; mark several with `Space` to delete in bulk; `--empty-trash` frees the space
@@ -55,7 +55,7 @@ Tip: `alias ccs=claude-sessions`
 | `↑` `↓` / `j` `k` | Navigate |
 | `PgUp` `PgDn` | Page up / down |
 | `g` / `G` | Jump to top / bottom |
-| `/` | Search by title, message or path |
+| `/` | Search by title, message or path. While typing: `↑↓` select, `Enter` open, `Tab` keep the filter and go back to the list |
 | `Esc` | Clear search and marks |
 | `Enter` | Open session (new tab if supported, otherwise here) |
 | `o` | Open session in this terminal |
@@ -92,9 +92,12 @@ Sessions are grouped by profile in the UI. Press `m` to move a session to a diff
 | **tmux** | ✅ new window | In the current session |
 | **iTerm2** | ✅ new tab | Via `osascript` |
 | **Terminal.app** | ✅ new window | Via `osascript` |
+| **Windows Terminal** | ✅ new tab | Via `wt new-tab` (native Windows; in WSL it resumes in place) |
 | Anything else | ✅ same terminal | GNOME Terminal, Ghostty, VS Code, … |
 
 Set `CLAUDE_SESSIONS_TERMINAL=here` to always resume in place.
+
+Set `NO_COLOR=1` to turn off colors (bold and inverse are kept).
 
 ### Custom open command
 
@@ -107,7 +110,7 @@ export CLAUDE_SESSIONS_OPEN_CMD="ghostty --command=bash -i -c %cmd%"
 # iTerm2 via osascript
 export CLAUDE_SESSIONS_OPEN_CMD="osascript -e 'tell app \"iTerm\" to create window with default profile command \"bash -i -c %cmd%\"'"
 
-# Force a specific mode: kitty | wezterm | tmux | iterm2 | apple-terminal | here
+# Force a specific mode: kitty | wezterm | tmux | iterm2 | apple-terminal | windows-terminal | here
 export CLAUDE_SESSIONS_TERMINAL=wezterm
 ```
 

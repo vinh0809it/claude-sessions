@@ -455,13 +455,15 @@ function tabComplete(input) {
 
 // ─── Terminal detection & open ────────────────────────────────────────────────
 
-function detectTerminal(env = process.env) {
+function detectTerminal(env = process.env, platform = process.platform) {
   if (env.CLAUDE_SESSIONS_TERMINAL) return env.CLAUDE_SESSIONS_TERMINAL;
   if (env.KITTY_WINDOW_ID !== undefined) return 'kitty';
   if (env.WEZTERM_PANE    !== undefined) return 'wezterm';
   if (env.TMUX)                          return 'tmux';
   if (env.TERM_PROGRAM === 'iTerm.app')      return 'iterm2';
   if (env.TERM_PROGRAM === 'Apple_Terminal') return 'apple-terminal';
+  // WSL also sees WT_SESSION, but there `wt` would open a Windows shell, not Linux.
+  if (env.WT_SESSION && platform === 'win32') return 'windows-terminal';
   return 'here';
 }
 
@@ -512,6 +514,14 @@ function planShellCmd(plan) {
   return `cd ${shellEsc(plan.cwd)} && CLAUDE_CONFIG_DIR=${shellEsc(plan.configDirPath)} ${claude}; exec "\${SHELL:-bash}"`;
 }
 
+// `wt new-tab` args. wt treats ';' as a command separator, so it is escaped.
+// cmd's `set X=v&& …` takes everything up to && as the value (spaces allowed).
+function wtArgs(plan) {
+  const semi = v => String(v).replace(/;/g, '\\;');
+  return ['-w', '0', 'nt', '--title', semi(plan.title), '-d', semi(plan.cwd),
+    'cmd', '/k', semi(`set CLAUDE_CONFIG_DIR=${plan.configDirPath}&& claude ${plan.args.join(' ')}`.trim())];
+}
+
 // Returns { ok, msg } or { here: true } when the caller should run it in this terminal.
 function launchInTab(plan) {
   const shellCmd  = planShellCmd(plan);
@@ -537,6 +547,8 @@ function launchInTab(plan) {
         `tell application "iTerm2" to tell current window to create tab with default profile command ${appleStr('bash -i -c ' + shellEsc(shellCmd))}`]);
     case 'apple-terminal':
       return trySpawn('osascript', ['-e', `tell application "Terminal" to do script ${appleStr(shellCmd)}`]);
+    case 'windows-terminal':
+      return trySpawn('wt', wtArgs(plan));
     default:
       return { here: true };
   }
@@ -559,6 +571,16 @@ function runHere(plan) {
 function fmtDate(d) {
   const t = new Date(d), p = n => String(n).padStart(2, '0');
   return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`;
+}
+
+function fmtAgo(d, now = Date.now()) {
+  const m = Math.floor((now - new Date(d)) / 60000);
+  if (m < 1)       return 'just now';
+  if (m < 60)      return `${m}m ago`;
+  if (m < 1440)    return `${Math.floor(m / 60)}h ago`;
+  if (m < 43200)   return `${Math.floor(m / 1440)}d ago`;
+  if (m < 525600)  return `${Math.floor(m / 43200)}mo ago`;
+  return `${Math.floor(m / 525600)}y ago`;
 }
 
 function fmtSize(n) {
@@ -592,7 +614,7 @@ function sortSessions(sessions, mode) {
 
 // ─── Plain list output ────────────────────────────────────────────────────────
 
-function ansi(code, s) { return process.stdout.isTTY ? `\x1b[${code}m${s}\x1b[0m` : s; }
+function ansi(code, s) { return process.stdout.isTTY && !process.env.NO_COLOR ? `\x1b[${code}m${s}\x1b[0m` : s; }
 
 function printList(sessions) {
   if (!sessions.length) { console.log('No sessions found.'); return; }
@@ -608,7 +630,7 @@ function printList(sessions) {
       lastProject = s.project;
     }
     const label = s.title
-      ? ansi('1;32', s.title)
+      ? groupTitle(s.title, '1;32', ansi)
       : ansi('2', `(${(s.firstMessage || 'untitled').slice(0, 60)}…)`);
     console.log(`    ${label}  ${ansi('2', `${fmtDate(s.lastModified)}  ${fmtSize(s.size)}`)}`);
     console.log(ansi('2', `    id: ${s.sessionId}`));
@@ -626,17 +648,34 @@ const altBuf     = `${ESC}[?1049h`;
 const normBuf    = `${ESC}[?1049l`;
 
 const mv    = (r, c) => `${ESC}[${r};${c}H`;
-const bold  = s => `${ESC}[1m${s}${ESC}[0m`;
-const dim   = s => `${ESC}[2m${s}${ESC}[0m`;
-const inv   = s => `${ESC}[7m${s}${ESC}[0m`;
-const fgc   = (code, s) => `${ESC}[${code}m${s}${ESC}[0m`;
-const bgc   = (code, s) => `${ESC}[${code}m${s}${ESC}[0m`;
+// Each helper resets only its own attribute, so a row background survives nested
+// colors. NO_COLOR (https://no-color.org) drops colors but keeps bold/dim/inverse.
+const COLOR = !process.env.NO_COLOR;
+const bold  = s => `${ESC}[1m${s}${ESC}[22m`;
+const dim   = s => `${ESC}[2m${s}${ESC}[22m`;
+const inv   = s => `${ESC}[7m${s}${ESC}[27m`;
+const fgc   = (code, s) => COLOR ? `${ESC}[${code}m${s}${ESC}[22;39m` : s;
+const bgc   = (code, s) => COLOR ? `${ESC}[${code}m${s}${ESC}[49m` : s;
+const SEL_BG = `${ESC}[48;5;236m`;
+// Selected line: dark background + accent bar (inverse when colors are off).
+// `styled` must color every visible part explicitly so it reads on light themes too.
+const selLine = (styled, plain, W) => COLOR
+  ? `${SEL_BG}${fgc('96', '▌')}${styled}${ESC}[K${ESC}[0m`
+  : inv(pad(` ${plain}`, W));
+const stripAnsi = s => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+// "Enter=open  /=search" → key in bold, label dimmed.
+const styleHints = s => s.replace(/(\S+)=(.+?)(?=  |$)/g, (_, k, l) => `${bold(k)} ${dim(l)}`);
 const trunc = (s, n) => n > 0 && s.length > n ? s.slice(0, n - 1) + '…' : s;
 const pad   = (s, n) => s.padEnd(n).slice(0, n);
+// "keycloak/fix-login" → group prefix in its own color so related sessions stand out
+const groupTitle = (t, color, fmt = fgc) => {
+  const i = t.indexOf('/');
+  return i > 0 ? fmt('95', t.slice(0, i + 1)) + fmt(color, t.slice(i + 1)) : fmt(color, t);
+};
 
 const HELP = [
   ['↑↓ / j k', 'Navigate'],          ['PgUp PgDn', 'Page up / down'],
-  ['g / G', 'Top / bottom'],         ['/', 'Search titles, messages, paths'],
+  ['g / G', 'Top / bottom'],         ['/', 'Search (↑↓ select, Enter open, Tab keep filter)'],
   ['Esc', 'Clear search / marks'],   ['Enter', 'Open (new tab if supported, else here)'],
   ['o', 'Open in this terminal'],    ['p', 'Toggle preview'],
   ['r', 'Rename'],                   ['s', 'Sort: date / size / name'],
@@ -644,6 +683,54 @@ const HELP = [
   ['m', 'Move to profile / folder'], ['d', 'Delete marked or selected (to trash)'],
   ['q / Ctrl-C', 'Quit'],
 ];
+
+// ─── LineInput ───────────────────────────────────────────────────────────────
+// One-line text field with a movable cursor: ←/→, Home/End, Ctrl-←/→ by word,
+// Backspace/Delete at the cursor, Ctrl-U (clear to start), Ctrl-W (delete word).
+
+const WORD_SEP = /[\s/\-_.]/;
+
+class LineInput {
+  constructor(text = '') { this.set(text); }
+  set(text) { this.chars = [...text]; this.cur = this.chars.length; }
+  get text()   { return this.chars.join(''); }
+  get before() { return this.chars.slice(0, this.cur).join(''); }
+
+  _wordLeft(i) {
+    while (i > 0 && WORD_SEP.test(this.chars[i - 1])) i--;
+    while (i > 0 && !WORD_SEP.test(this.chars[i - 1])) i--;
+    return i;
+  }
+  _wordRight(i) {
+    const n = this.chars.length;
+    while (i < n && WORD_SEP.test(this.chars[i])) i++;
+    while (i < n && !WORD_SEP.test(this.chars[i])) i++;
+    return i;
+  }
+
+  // Returns true when the key was an editing key.
+  handle(key) {
+    const c = this.chars;
+    switch (key) {
+      case '\x1b[D': case '\x02':                  this.cur = Math.max(0, this.cur - 1); break;
+      case '\x1b[C': case '\x06':                  this.cur = Math.min(c.length, this.cur + 1); break;
+      case '\x1b[H': case '\x1bOH': case '\x1b[1~': case '\x01': this.cur = 0; break;
+      case '\x1b[F': case '\x1bOF': case '\x1b[4~': case '\x05': this.cur = c.length; break;
+      case '\x1b[1;5D': case '\x1b[1;3D': this.cur = this._wordLeft(this.cur); break;
+      case '\x1b[1;5C': case '\x1b[1;3C': this.cur = this._wordRight(this.cur); break;
+      case '\x7f': case '\b':                      if (this.cur > 0) c.splice(--this.cur, 1); break;
+      case '\x1b[3~':                              c.splice(this.cur, 1); break;
+      case '\x15':                                 c.splice(0, this.cur); this.cur = 0; break;
+      case '\x17': { const i = this._wordLeft(this.cur); c.splice(i, this.cur - i); this.cur = i; break; }
+      default:
+        if (!isPrintable(key)) return false;
+        const ins = [...key];
+        c.splice(this.cur, 0, ...ins);
+        this.cur += ins.length;
+    }
+    return true;
+  }
+}
 
 // ─── Picker ───────────────────────────────────────────────────────────────────
 // Shared profile → folder → input flow used by both move and new modes.
@@ -656,7 +743,7 @@ class Picker {
     this.selIdx = 0;
     this.scroll = 0;
     this.config = null;
-    this.input  = '';
+    this.field  = new LineInput();
     this.completions = [];
 
     this._headerLabel       = headerLabel;
@@ -674,7 +761,7 @@ class Picker {
     this.selIdx      = 0;
     this.scroll      = 0;
     this.config      = null;
-    this.input       = '';
+    this.field.set('');
     this.completions = [];
     // Skip the profile step when there is only one.
     if (this.items.length === 1) this._enterFolderStep(this.items[0].configDirPath);
@@ -696,19 +783,15 @@ class Picker {
         this.completions = [];
         this.items       = this._buildFolderItems(this.config);
       } else if (key === '\t') {
-        const { completed, matches } = tabComplete(this.input || '~/');
-        this.input       = completed;
+        const { completed, matches } = tabComplete(this.field.text || '~/');
+        this.field.set(completed);
         this.completions = matches.length > 1 ? matches : [];
-      } else if (key === '\x7f' || key === '\b') {
-        this.input       = this.input.slice(0, -1);
-        this.completions = [];
       } else if (key === '\r') {
-        const raw = this.input.trim();
+        const raw = this.field.text.trim();
         this.completions = [];
         if (raw) this._onConfirmCustom(path.resolve(expandHome(raw).replace(/[\\/]+$/, '') || path.sep));
         else this.step = 'folder';
-      } else if (isPrintable(key)) {
-        this.input      += key;
+      } else if (this.field.handle(key)) {
         this.completions = [];
       }
       return true;
@@ -733,7 +816,7 @@ class Picker {
       const item = this.items[this.selIdx];
       if (!item) return true;
       if (item.type === 'profile') { this._enterFolderStep(item.configDirPath); return true; }
-      if (item.type === 'new')     { this.step = 'input'; this.input = '~/'; this.completions = []; return true; }
+      if (item.type === 'new')     { this.step = 'input'; this.field.set('~/'); this.completions = []; return true; }
       this._onConfirmItem(item);
     }
     return true;
@@ -753,7 +836,7 @@ class Picker {
 
     let listStart = 4;
     if (this.step === 'input') {
-      out.push(mv(4, 1), clrLine, `  ${fgc('93', this._inputPrompt)} ${this.input}█`);
+      out.push(mv(4, 1), clrLine, `  ${fgc('93', this._inputPrompt)} ${this.field.text}`);
       out.push(mv(5, 1), clrLine);
       if (this.completions.length > 1) {
         const cols = Math.max(1, Math.floor((W - 2) / 22));
@@ -784,7 +867,7 @@ class Picker {
                    : item.type === 'new'     ? fgc('93', item.label)
                    : item.type === 'profile' ? bold(fgc('96', item.label))
                    : fgc('33', item.label);
-      out.push(isSel ? inv(pad(`    ${trunc(item.label, W - 4)}`, W)) : `    ${label}`);
+      out.push(isSel ? selLine(`   ${COLOR ? label.replace(/\x1b\[2m/g, '') : label}`, `   ${trunc(item.label, W - 5)}`, W) : `    ${label}`);
     }
   }
 }
@@ -838,7 +921,8 @@ class TUI {
     this.marked     = new Set();   // jsonlPath
     this.preview    = false;
     this._previewCache = new Map();
-    this.renameInput = '';
+    this.renameField = new LineInput();
+    this.searchField = new LineInput();
     this.w = process.stdout.columns || 80;
     this.h = process.stdout.rows    || 24;
 
@@ -921,12 +1005,13 @@ class TUI {
       : this.all;
 
     this.items = [];
-    let lastConfig = null;
+    let group = null;
     for (const s of sortSessions(filtered, this.sort)) {
-      if (s.configDir !== lastConfig) {
-        this.items.push({ type: 'config', label: s.configDir });
-        lastConfig = s.configDir;
+      if (s.configDir !== group?.label) {
+        group = { type: 'config', label: s.configDir, count: 0 };
+        this.items.push(group);
       }
+      group.count++;
       this.items.push({ type: 'session', session: s });
     }
 
@@ -1046,7 +1131,8 @@ class TUI {
       chunks.slice(0, 3).forEach((c, i) => lines.push(`  ${i === 0 ? tag : '    '} ${i === 2 && chunks.length > 3 ? trunc(c, width - 1) + '…' : c}`));
     }
     if (!lines.length) lines.push(dim('  (no messages)'));
-    return lines.slice(-H);
+    const head = dim(`  ${fmtDate(s.lastModified)} · ${fmtSize(s.size)} · ${s.sessionId}`);
+    return [head, ...lines.slice(-(H - 1))];
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -1073,7 +1159,11 @@ class TUI {
     }
 
     out.push(mv(H, 1));
-    out.push(bgc('40', fgc('37', pad(trunc(this._footer(W), W), W))));
+    const foot = trunc(this._footer(W), W);
+    out.push(clrLine, this._footerIsStatus ? fgc('93', foot) : styleHints(foot)
+      .replace(/^  (SEARCH|RENAME):/, (_, l) => `  ${bold(fgc('93', l + ':'))}`));
+    const cur = this._cursorPos();
+    if (cur) out.push(mv(cur[0], Math.min(W, cur[1])), showCursor);
     process.stdout.write(out.join(''));
   }
 
@@ -1087,7 +1177,9 @@ class TUI {
       if (!item) continue;
 
       if (item.type === 'config') {
-        out.push(bold(fgc('96', `  [${item.label}]`)));
+        const count = `· ${item.count} session${item.count === 1 ? '' : 's'}`;
+        const rule  = '─'.repeat(Math.max(0, W - item.label.length - count.length - 6));
+        out.push(dim('── ') + bold(fgc('96', item.label)) + ' ' + dim(`${count} ${rule}`));
         continue;
       }
       const s        = item.session;
@@ -1095,22 +1187,20 @@ class TUI {
       const mark     = this.marked.has(s.jsonlPath) ? '●' : ' ';
       const title    = s.title || (s.firstMessage ? `(${s.firstMessage})` : '(untitled)');
       const project  = shortenPath(s.project);
-      const meta     = `${fmtSize(s.size).padStart(5)}  ${fmtDate(s.lastModified)}`;
+      const meta     = `${fmtSize(s.size).padStart(5)}  ${fmtAgo(s.lastModified).padStart(8)}`;
       const cfgTag   = this.search ? `[${shortConfig(s.configDir)}] ` : '';
-      const avail    = Math.max(12, W - 2 - cfgTag.length - 2 - 2 - meta.length);
+      const avail    = Math.max(12, W - 3 - cfgTag.length - 4 - meta.length - 1);
       const titleW   = Math.floor(avail * 0.55);
       const projectW = avail - titleW;
+      const titleTxt = pad(trunc(title, titleW), titleW);
+      const projTxt  = pad(trunc(project, projectW), projectW);
+      // On the selected line every part gets an explicit color (see selLine).
+      const muted    = t => isSel ? fgc('37', t) : dim(t);
+      const styled   = fgc('91', mark) + ' ' + (cfgTag ? fgc('96', cfgTag) : '') +
+        (s.title ? groupTitle(titleTxt, isSel ? '1;92' : '92') : muted(titleTxt)) +
+        `  ${fgc('33', projTxt)}  ${muted(meta)}`;
 
-      if (isSel) {
-        out.push(inv(pad(`${mark} ${cfgTag}${pad(trunc(title, titleW), titleW)}  ${pad(trunc(project, projectW), projectW)}  ${meta}`, W)));
-      } else {
-        out.push(
-          fgc('91', mark) + ' ' + (cfgTag ? fgc('96', cfgTag) : '') +
-          (s.title ? fgc('92', pad(trunc(title, titleW), titleW)) : dim(pad(trunc(title, titleW), titleW))) +
-          `  ${fgc('33', pad(trunc(project, projectW), projectW))}` +
-          `  ${dim(meta)}`
-        );
-      }
+      out.push(isSel ? selLine(styled, `${mark} ${cfgTag}${titleTxt}  ${projTxt}  ${meta}`, W) : ` ${styled}`);
       si++;
     }
   }
@@ -1123,7 +1213,18 @@ class TUI {
     for (let r = 0; r < this.previewH - 1; r++) out.push(mv(top + 1 + r, 1), clrLine, lines[r] || '');
   }
 
+  // Where to show the terminal cursor when a text field is active, else null.
+  _cursorPos() {
+    const at = (row, prefix, f) => [row, prefix.length + [...f.before].length + 1];
+    if (this.mode === 'search') return at(this.h, '  SEARCH: ', this.searchField);
+    if (this.mode === 'rename') return at(this.h, '  RENAME: ', this.renameField);
+    const p = this.mode === 'move' ? this.movePicker : this.mode === 'new' ? this.newPicker : null;
+    if (p && p.step === 'input') return at(4, `  ${p._inputPrompt} `, p.field);
+    return null;
+  }
+
   _footer(W) {
+    this._footerIsStatus = false;
     const sel   = this.selectedSession();
     const total = this.sessionItems().length;
     const pick  = p => p.step === 'profile' ? `  ↑↓/jk=navigate  Enter=select profile  Esc=cancel`
@@ -1137,14 +1238,18 @@ class TUI {
       }
       case 'move':   return pick(this.movePicker);
       case 'new':    return pick(this.newPicker);
-      case 'search': return `  SEARCH: ${this.search}█  Esc=cancel  Enter=done`;
-      case 'rename': return `  RENAME: ${this.renameInput}█  Enter=save  Esc=cancel`;
+      case 'search': return `  SEARCH: ${this.searchField.text}   ↑↓=select  Enter=open  Tab=keep filter  Esc=cancel`;
+      case 'rename': return `  RENAME: ${this.renameField.text}   Enter=save  Esc=cancel`;
       case 'help':   return `  Press any key to close help`;
     }
-    if (this.statusMsg) return `  ${this.statusMsg}`;
-    const marks = this.marked.size ? `  ${this.marked.size} marked` : '';
-    const ctx = sel ? `  ${dim(trunc(shortenPath(sel.project), Math.max(0, W - 80)))}` : '';
-    return `  Enter=open o=here /=search p=preview r=rename m=move d=del ?=help q=quit  [${total}]${marks}${ctx}`;
+    if (this.statusMsg) { this._footerIsStatus = true; return `  ${this.statusMsg}`; }
+    const right = `${total} session${total === 1 ? '' : 's'}${this.marked.size ? ` · ${this.marked.size} marked` : ''}  `;
+    let left = '';
+    for (const h of ['Enter=open', '/=search', 'p=preview', 'r=rename', 'm=move', 'd=delete', '?=more', 'q=quit']) {
+      if (`${left}  ${h}`.length + right.length + 2 > W) break;
+      left += `  ${h}`;
+    }
+    return left + ' '.repeat(Math.max(2, W - left.length - right.length)) + right;
   }
 
   // ── Input ───────────────────────────────────────────────────────────────────
@@ -1169,25 +1274,33 @@ class TUI {
     }
 
     if (this.mode === 'search') {
-      if      (key === '\x1b')                { this.mode = null; this.search = ''; this.rebuild(); }
-      else if (key === '\r')                  { this.mode = null; }
-      else if (key === '\x7f' || key === '\b') { this.search = this.search.slice(0, -1); this.rebuild(); }
-      else if (isPrintable(key))              { this.search += key; this.rebuild(); }
+      if      (key === '\x1b') { this.mode = null; this.search = ''; this.rebuild(); }
+      else if (key === '\t')   { this.mode = null; }
+      else if (key === '\r')   { this.mode = null; const s = this.selectedSession(); if (s) this._open(resumePlan(s)); }
+      else if (key === '\x1b[A' || key === '\x1b[B' || key === '\x1b[5~' || key === '\x1b[6~') {
+        const total = this.sessionItems().length;
+        const delta = { '\x1b[A': -1, '\x1b[B': 1, '\x1b[5~': -this.listH, '\x1b[6~': this.listH }[key];
+        this.selIdx = Math.max(0, Math.min(total - 1, this.selIdx + delta));
+        this.ensureVisible();
+      }
+      else if (this.searchField.handle(key) && this.searchField.text !== this.search) {
+        this.search = this.searchField.text; this.rebuild();
+      }
       return true;
     }
 
     if (this.mode === 'rename') {
       if      (key === '\x1b')                { this.mode = null; }
-      else if (key === '\x7f' || key === '\b') { this.renameInput = this.renameInput.slice(0, -1); }
       else if (key === '\r') {
         this.mode = null;
         const s = this.selectedSession();
-        if (s && this.renameInput.trim()) {
-          try { renameSession(s, this.renameInput); this.reloadAll(); this.setStatus(`Renamed to "${s.title}"`); }
+        const name = this.renameField.text;
+        if (s && name.trim()) {
+          try { renameSession(s, name); this.reloadAll(); this.setStatus(`Renamed to "${s.title}"`); }
           catch (e) { this.setStatus(`Rename failed: ${e.message}`, 5000); }
         }
       }
-      else if (isPrintable(key))              { this.renameInput += key; }
+      else this.renameField.handle(key);
       return true;
     }
 
@@ -1201,14 +1314,14 @@ class TUI {
 
     if (key === 'q' || key === '\x03') return false;
 
-    if      (key === '/')    { this.mode = 'search'; }
+    if      (key === '/')    { this.searchField.set(this.search); this.mode = 'search'; }
     else if (key === '?')    { this.mode = 'help'; }
     else if (key === '\x1b') { this.search = ''; this.marked.clear(); this.rebuild(); }
     else if (key === '\r')   { if (s) this._open(resumePlan(s)); }
     else if (key === 'o')    { if (s) this._open(resumePlan(s), true); }
     else if (key === 'p')    { this.preview = !this.preview; this.ensureVisible(); }
     else if (key === 's')    { this.sort = SORTS[(SORTS.indexOf(this.sort) + 1) % SORTS.length]; this.rebuild(); this.selectById(s?.sessionId); }
-    else if (key === 'r')    { if (s) { this.renameInput = s.title || ''; this.mode = 'rename'; } }
+    else if (key === 'r')    { if (s) { this.renameField.set(s.title || ''); this.mode = 'rename'; } }
     else if (key === ' ')    {
       if (s) { this.marked.has(s.jsonlPath) ? this.marked.delete(s.jsonlPath) : this.marked.add(s.jsonlPath); move(+1); }
     }
@@ -1312,6 +1425,6 @@ if (require.main === module) {
   module.exports = {
     encodePathToDir, projectDirNameFor, tabComplete, resolveProjectPath, moveSession, readSession,
     readRecentMessages, renameSession, deleteSessionFiles, emptyTrash, scanConfigDir, sortSessions,
-    detectTerminal, parseArgs, fmtSize, splitKeys, wrapWords, cache,
+    detectTerminal, wtArgs, parseArgs, fmtAgo, fmtSize, splitKeys, wrapWords, cache, LineInput,
   };
 }

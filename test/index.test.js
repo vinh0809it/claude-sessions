@@ -481,6 +481,8 @@ describe('detectTerminal', () => {
     assert.equal(detectTerminal({ TERM_PROGRAM: 'iTerm.app' }), 'iterm2');
     assert.equal(detectTerminal({ TERM_PROGRAM: 'Apple_Terminal' }), 'apple-terminal');
     assert.equal(detectTerminal({ TMUX: 'x', CLAUDE_SESSIONS_TERMINAL: 'here' }), 'here');
+    assert.equal(detectTerminal({ WT_SESSION: 'x' }, 'win32'), 'windows-terminal');
+    assert.equal(detectTerminal({ WT_SESSION: 'x' }, 'linux'), 'here'); // WSL
   });
 });
 
@@ -511,5 +513,48 @@ describe('wrapWords', () => {
   });
   test('splits words longer than the width', () => {
     assert.deepEqual(wrapWords('abcdefghij x', 4), ['abcd', 'efgh', 'ij x']);
+  });
+});
+
+describe('LineInput', () => {
+  const { LineInput } = require('../index.js');
+  const type = (f, ...keys) => { for (const k of keys) f.handle(k); return f; };
+  test('edits in the middle with arrows, backspace and delete', () => {
+    const f = type(new LineInput('keycloak/fix-login'), '\x1b[H', '\x1b[3~', 'K', '\x1b[F', '\x7f', 'N');
+    assert.equal(f.text, 'Keycloak/fix-logiN');
+    type(f, '\x1b[D', '\x1b[D', '!');
+    assert.equal(f.text, 'Keycloak/fix-log!iN');
+    assert.equal(f.before, 'Keycloak/fix-log!');
+  });
+  test('Ctrl-W deletes the previous word, Ctrl-U clears to start', () => {
+    const f = type(new LineInput('reward/fix-login'), '\x17');
+    assert.equal(f.text, 'reward/fix-');
+    type(f, '\x1b[1;5D', '\x15');
+    assert.equal(f.text, 'fix-');
+  });
+  test('ignores non-editing keys, handles multi-byte chars', () => {
+    const f = new LineInput('tên');
+    assert.equal(f.handle('\x1b[A'), false);
+    type(f, '\x1b[D', '\x7f');
+    assert.equal(f.text, 'tn');
+  });
+});
+
+describe('wtArgs', () => {
+  const { wtArgs } = require('../index.js');
+  test('opens a cmd tab with the profile set, escaping ";" for wt', () => {
+    const args = wtArgs({ title: 'fix; login', cwd: 'C:\\Users\\Jo Doe\\app', configDirPath: 'C:\\Users\\Jo Doe\\.claude', args: ['-r', 'abc'] });
+    assert.deepEqual(args, ['-w', '0', 'nt', '--title', 'fix\\; login', '-d', 'C:\\Users\\Jo Doe\\app',
+      'cmd', '/k', 'set CLAUDE_CONFIG_DIR=C:\\Users\\Jo Doe\\.claude&& claude -r abc']);
+  });
+});
+
+describe('fmtAgo', () => {
+  const { fmtAgo } = require('../index.js');
+  test('picks the largest whole unit', () => {
+    const now = Date.parse('2026-11-10T12:00:00Z');
+    const ago = mins => fmtAgo(now - mins * 60000, now);
+    assert.deepEqual([ago(0), ago(5), ago(125), ago(60 * 24 * 3), ago(60 * 24 * 65), ago(60 * 24 * 800)],
+      ['just now', '5m ago', '2h ago', '3d ago', '2mo ago', '2y ago']);
   });
 });

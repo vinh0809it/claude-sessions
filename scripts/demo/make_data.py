@@ -15,9 +15,9 @@ def sess(profile, proj, sid, title, first, reply, size_kb, age_min):
     t=now-age_min*60; os.utime(f,(t,t))
 W=H+'/projects'
 data=[
- ('.claude-work', f'{W}/acme/api', 'a1', 'booking-overlap-check', 'bookings can overlap when two requests arrive together', 'Wrapped the availability check and insert in one transaction with SELECT … FOR UPDATE.', 12300, 7),
- ('.claude-work', f'{W}/acme/api', 'a2', 'payment-webhook-retry', 'stripe webhooks get processed twice sometimes', 'Added an idempotency key table keyed by event id.', 3100, 55),
- ('.claude-work', f'{W}/acme/web', 'a3', 'checkout-a11y-pass', 'audit the checkout form for accessibility', 'Labels, focus order and error announcements are fixed.', 840, 190),
+ ('.claude-work', f'{W}/acme/api', 'a1', 'api/booking-overlap-check', 'bookings can overlap when two requests arrive together', 'Wrapped the availability check and insert in one transaction with SELECT … FOR UPDATE.', 12300, 7),
+ ('.claude-work', f'{W}/acme/api', 'a2', 'api/payment-webhook-retry', 'stripe webhooks get processed twice sometimes', 'Added an idempotency key table keyed by event id.', 3100, 55),
+ ('.claude-work', f'{W}/acme/web', 'a3', 'web/checkout-a11y-pass', 'audit the checkout form for accessibility', 'Labels, focus order and error announcements are fixed.', 840, 190),
  ('.claude-work', f'{W}/acme/infra', 'a4', None, 'why is the staging pod OOMKilled every night', 'The nightly export loads the whole table into memory; switched to a cursor.', 5200, 400),
  ('.claude', f'{W}/blog', 'b1', 'astro-migration', 'move my blog from jekyll to astro', 'All 42 posts migrated; RSS and redirects kept.', 2400, 30),
  ('.claude', f'{W}/dotfiles', 'b2', 'nvim-lsp-setup', 'set up lsp for go and rust in neovim', 'gopls and rust-analyzer are wired up with format-on-save.', 420, 1500),
