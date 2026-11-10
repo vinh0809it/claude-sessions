@@ -872,23 +872,6 @@ class Picker {
   }
 }
 
-// Word-wraps text to `width` columns; words longer than a line are split.
-function wrapWords(text, width) {
-  const lines = [];
-  let cur = '';
-  for (let word of text.split(' ')) {
-    while (word.length > width) {
-      if (cur) { lines.push(cur); cur = ''; }
-      lines.push(word.slice(0, width)); word = word.slice(width);
-    }
-    if (!cur) cur = word;
-    else if (cur.length + 1 + word.length <= width) cur += ' ' + word;
-    else { lines.push(cur); cur = word; }
-  }
-  if (cur || !lines.length) lines.push(cur);
-  return lines;
-}
-
 // A stdin chunk may hold several keys (fast typing, paste): split into single
 // chars, keeping escape sequences like "\x1b[A" or "\x1b[5~" whole.
 function splitKeys(chunk) {
@@ -1123,16 +1106,14 @@ class TUI {
     const key = s.jsonlPath + ':' + s.lastModified.valueOf();
     let msgs = this._previewCache.get(key);
     if (!msgs) { msgs = readRecentMessages(s.jsonlPath); this._previewCache.set(key, msgs); }
-    const lines = [];
-    for (const m of msgs) {
-      const tag = m.role === 'user' ? fgc('92', 'you ') : fgc('96', 'cc  ');
-      const width = Math.max(10, W - 8);
-      const chunks = wrapWords(m.text, width);
-      chunks.slice(0, 3).forEach((c, i) => lines.push(`  ${i === 0 ? tag : '    '} ${i === 2 && chunks.length > 3 ? trunc(c, width - 1) + '…' : c}`));
-    }
-    if (!lines.length) lines.push(dim('  (no messages)'));
+    // One line per message with a blank line between, newest at the bottom.
+    const width = Math.max(10, W - 8);
+    const lines = msgs.flatMap(m => ['',
+      `  ${m.role === 'user' ? fgc('92', 'you ') : fgc('96', 'cc  ')} ${trunc(m.text.replace(/\s+/g, ' ').trim(), width)}`]);
+    const body = lines.slice(-(H - 2));
+    if (body[0] === '') body.shift();
     const head = dim(`  ${fmtDate(s.lastModified)} · ${fmtSize(s.size)} · ${s.sessionId}`);
-    return [head, ...lines.slice(-(H - 1))];
+    return [head, '', ...(body.length ? body : [dim('  (no messages)')])];
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -1425,6 +1406,6 @@ if (require.main === module) {
   module.exports = {
     encodePathToDir, projectDirNameFor, tabComplete, resolveProjectPath, moveSession, readSession,
     readRecentMessages, renameSession, deleteSessionFiles, emptyTrash, scanConfigDir, sortSessions,
-    detectTerminal, wtArgs, parseArgs, fmtAgo, fmtSize, splitKeys, wrapWords, cache, LineInput,
+    detectTerminal, wtArgs, parseArgs, fmtAgo, fmtSize, splitKeys, cache, LineInput,
   };
 }
