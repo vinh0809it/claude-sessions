@@ -89,7 +89,7 @@ Sessions are grouped by profile in the UI. Press `m` to move a session to a diff
 |----------|---------|-------|
 | **Kitty** | ✅ new tab | Requires `allow_remote_control yes` in `kitty.conf` |
 | **WezTerm** | ✅ new tab | Uses `wezterm cli spawn` |
-| **tmux** | ✅ new window | In the current session |
+| **tmux** | ✅ new window | In the current session, also when tmux runs inside kitty or WezTerm |
 | **iTerm2** | ✅ new tab | Via `osascript` |
 | **Terminal.app** | ✅ new window | Via `osascript` |
 | **Windows Terminal** | ✅ new tab | Via `wt new-tab` (native Windows; in WSL it resumes in place) |

@@ -457,9 +457,11 @@ function tabComplete(input) {
 
 function detectTerminal(env = process.env, platform = process.platform) {
   if (env.CLAUDE_SESSIONS_TERMINAL) return env.CLAUDE_SESSIONS_TERMINAL;
+  // tmux first: it is always the innermost layer, and a tmux started from kitty or
+  // WezTerm inherits their variables even though their tab commands can't reach it.
+  if (env.TMUX)                          return 'tmux';
   if (env.KITTY_WINDOW_ID !== undefined) return 'kitty';
   if (env.WEZTERM_PANE    !== undefined) return 'wezterm';
-  if (env.TMUX)                          return 'tmux';
   if (env.TERM_PROGRAM === 'iTerm.app')      return 'iterm2';
   if (env.TERM_PROGRAM === 'Apple_Terminal') return 'apple-terminal';
   // WSL also sees WT_SESSION, but there `wt` would open a Windows shell, not Linux.
@@ -471,8 +473,10 @@ function shellEsc(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
 function appleStr(s) { return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'; }
 
 function trySpawn(cmd, args) {
-  const r = spawnSync(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] });
-  if (r.error) return { ok: false, msg: `${cmd}: ${r.error.code === 'ENOENT' ? 'not found' : r.error.message}` };
+  // Tab commands return at once; the timeout keeps a stuck one (e.g. `kitty @`
+  // waiting for a reply that never comes) from freezing the UI.
+  const r = spawnSync(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
+  if (r.error) return { ok: false, msg: `${cmd}: ${r.error.code === 'ENOENT' ? 'not found' : r.error.code === 'ETIMEDOUT' ? 'timed out' : r.error.message}` };
   return r.status === 0
     ? { ok: true }
     : { ok: false, msg: r.stderr?.toString().trim() || `${cmd} exited with ${r.status}` };

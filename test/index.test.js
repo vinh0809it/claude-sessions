@@ -478,6 +478,7 @@ describe('detectTerminal', () => {
   test('detects kitty, tmux, iTerm, Apple Terminal, honours override', () => {
     assert.equal(detectTerminal({ KITTY_WINDOW_ID: '1' }), 'kitty');
     assert.equal(detectTerminal({ TMUX: '/tmp/x' }), 'tmux');
+    assert.equal(detectTerminal({ TMUX: '/tmp/x', KITTY_WINDOW_ID: '1' }), 'tmux'); // tmux inside kitty
     assert.equal(detectTerminal({ TERM_PROGRAM: 'iTerm.app' }), 'iterm2');
     assert.equal(detectTerminal({ TERM_PROGRAM: 'Apple_Terminal' }), 'apple-terminal');
     assert.equal(detectTerminal({ TMUX: 'x', CLAUDE_SESSIONS_TERMINAL: 'here' }), 'here');
