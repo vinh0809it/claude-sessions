@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { makeTmp, rmTmp, writeJsonl } = require('./support/helpers');
-const { detectTerminal, resolveProjectPath, wtArgs } = require('../lib/launch');
+const { detectTerminal, configDirEnv, resolveProjectPath, wtArgs } = require('../lib/launch');
 const { encodePathToDir } = require('../lib/paths');
 
 describe('resolveProjectPath', () => {
@@ -77,5 +77,21 @@ describe('wtArgs', () => {
     const args = wtArgs({ title: 'fix; login', cwd: 'C:\\Users\\Jo Doe\\app', configDirPath: 'C:\\Users\\Jo Doe\\.claude', args: ['-r', 'abc'] });
     assert.deepEqual(args, ['-w', '0', 'nt', '--title', 'fix\\; login', '-d', 'C:\\Users\\Jo Doe\\app',
       'cmd', '/k', 'set CLAUDE_CONFIG_DIR=C:\\Users\\Jo Doe\\.claude&& claude -r abc']);
+  });
+});
+
+describe('configDirEnv', () => {
+  const home = '/home/me';
+  test('leaves it unset for the default ~/.claude, where the normal login lives', () => {
+    assert.equal(configDirEnv('/home/me/.claude', {}, home), null);
+  });
+  test('sets it for other profiles', () => {
+    assert.equal(configDirEnv('/home/me/.claude-work', {}, home), '/home/me/.claude-work');
+  });
+  test('keeps it when the user already sets it to that profile', () => {
+    assert.equal(configDirEnv('/home/me/.claude', { CLAUDE_CONFIG_DIR: '/home/me/.claude/' }, home), '/home/me/.claude');
+  });
+  test('unsets an inherited value that points at another profile', () => {
+    assert.equal(configDirEnv('/home/me/.claude', { CLAUDE_CONFIG_DIR: '/home/me/.claude-work' }, home), null);
   });
 });

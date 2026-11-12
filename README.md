@@ -24,7 +24,7 @@ A zero-dependency terminal UI for browsing, previewing, resuming, renaming, movi
 npm install -g @vinh0809it/claude-sessions
 
 # Or run without installing
-npx @vinh0809it/claude-sessions
+npx -y @vinh0809it/claude-sessions
 ```
 
 Requires Node.js 18+.
