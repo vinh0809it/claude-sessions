@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { makeTmp, rmTmp, writeJsonl } = require('./support/helpers');
-const { readSession, readRecentMessages, scanConfigDir, sortSessions, listProjectFolders } = require('../lib/sessions');
+const { readSession, readRecentMessages, scanConfigDir, sortSessions, listProjectFolders, belongsTo } = require('../lib/sessions');
 const { encodePathToDir } = require('../lib/paths');
 
 describe('readSession', () => {
@@ -156,5 +156,15 @@ describe('listProjectFolders', () => {
 
     const folders = listProjectFolders(cfg);
     assert.deepEqual(folders.map(f => [f.projectDirName, f.projectPath]), [[encodePathToDir(api), api]]);
+  });
+});
+
+describe('belongsTo', () => {
+  test('matches the encoded folder name exactly on Linux and macOS', () => {
+    assert.equal(belongsTo('/home/me/App', '-home-me-App', false), true);
+    assert.equal(belongsTo('/home/me/app', '-home-me-App', false), false);
+  });
+  test('ignores case on Windows', () => {
+    assert.equal(belongsTo('c:\\Users\\me\\app', 'C--Users-me-app', true), true);
   });
 });

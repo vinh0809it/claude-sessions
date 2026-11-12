@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { makeTmp, rmTmp, writeJsonl } = require('./support/helpers');
-const { detectTerminal, configDirEnv, resolveProjectPath, wtArgs } = require('../lib/launch');
+const { detectTerminal, configDirEnv, findClaude, resolveProjectPath, wtArgs } = require('../lib/launch');
 const { encodePathToDir } = require('../lib/paths');
 
 describe('resolveProjectPath', () => {
@@ -68,6 +68,9 @@ describe('detectTerminal', () => {
     assert.equal(detectTerminal({ TERM_PROGRAM: 'Apple_Terminal' }), 'apple-terminal');
     assert.equal(detectTerminal({ TMUX: 'x', CLAUDE_SESSIONS_TERMINAL: 'here' }), 'here');
     assert.equal(detectTerminal({ WT_SESSION: 'x' }, 'win32'), 'windows-terminal');
+    assert.equal(detectTerminal({ PTYXIS_VERSION: '50.1', VTE_VERSION: '8401' }), 'ptyxis');
+    assert.equal(detectTerminal({ GNOME_TERMINAL_SCREEN: '/org/gnome/Terminal/screen/x' }), 'gnome-terminal');
+    assert.equal(detectTerminal({ TMUX: 'x', PTYXIS_VERSION: '50.1' }), 'tmux');
     assert.equal(detectTerminal({ WT_SESSION: 'x' }, 'linux'), 'here'); // WSL
   });
 });
@@ -77,6 +80,11 @@ describe('wtArgs', () => {
     const args = wtArgs({ title: 'fix; login', cwd: 'C:\\Users\\Jo Doe\\app', configDirPath: 'C:\\Users\\Jo Doe\\.claude', args: ['-r', 'abc'] });
     assert.deepEqual(args, ['-w', '0', 'nt', '--title', 'fix\\; login', '-d', 'C:\\Users\\Jo Doe\\app',
       'cmd', '/k', 'set CLAUDE_CONFIG_DIR=C:\\Users\\Jo Doe\\.claude&& claude -r abc']);
+  });
+  test('quotes an absolute claude path (spaces in the user name)', () => {
+    const args = wtArgs({ title: 't', cwd: 'C:\\app', configDirPath: 'C:\\Users\\Jo Doe\\.claude-work', args: [] },
+      'C:\\Users\\Jo Doe\\.local\\bin\\claude.exe');
+    assert.equal(args.at(-1), 'set CLAUDE_CONFIG_DIR=C:\\Users\\Jo Doe\\.claude-work&& "C:\\Users\\Jo Doe\\.local\\bin\\claude.exe"');
   });
 });
 
@@ -93,5 +101,31 @@ describe('configDirEnv', () => {
   });
   test('unsets an inherited value that points at another profile', () => {
     assert.equal(configDirEnv('/home/me/.claude', { CLAUDE_CONFIG_DIR: '/home/me/.claude-work' }, home), null);
+  });
+});
+
+describe('findClaude', () => {
+  let root;
+  before(() => { root = makeTmp(['bin', 'home/.claude/local', 'empty']); });
+  after(() => { rmTmp(root); });
+  const exe = (p) => { fs.writeFileSync(p, '#!/bin/sh\n'); fs.chmodSync(p, 0o755); return p; };
+
+  test('prefers PATH', { skip: process.platform === 'win32' }, () => {
+    const onPath = exe(path.join(root, 'bin', 'claude'));
+    exe(path.join(root, 'home', '.claude', 'local', 'claude'));
+    assert.equal(findClaude({ PATH: path.join(root, 'bin') }, path.join(root, 'home')), onPath);
+  });
+  test('falls back to ~/.claude/local (installs that only add a shell alias)', { skip: process.platform === 'win32' }, () => {
+    const local = path.join(root, 'home', '.claude', 'local', 'claude');
+    assert.equal(findClaude({ PATH: path.join(root, 'empty') }, path.join(root, 'home')), local);
+  });
+  test('null when nowhere to be found', { skip: process.platform === 'win32' }, () => {
+    assert.equal(findClaude({ PATH: path.join(root, 'empty') }, path.join(root, 'empty')), null);
+  });
+  test('Windows: the native install location first', () => {
+    const home = path.join(root, 'winhome');
+    fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.local', 'bin', 'claude.exe'), '');
+    assert.equal(findClaude({}, home, true), path.join(home, '.local', 'bin', 'claude.exe'));
   });
 });

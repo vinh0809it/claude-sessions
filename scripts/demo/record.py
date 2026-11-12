@@ -33,13 +33,23 @@ class Screen:
             elif p==27: s.attr.pop('inv',None)
             elif p==39: s.attr.pop('fg',None)
             elif p==49: s.attr.pop('bg',None)
+            elif p in (38,48) and i+4<len(ps) and ps[i+1]==2:
+                s.attr['fg' if p==38 else 'bg']=tuple(ps[i+2:i+5]); i+=4
             elif p in (38,48) and i+2<len(ps) and ps[i+1]==5:
-                n=ps[i+2]; v=8+10*(n-232) if n>=232 else 128
-                s.attr['fg' if p==38 else 'bg']=(v,v,v+10) if n>=232 else (215,119,87); i+=2
+                n=ps[i+2]
+                if n>=232: v=8+10*(n-232); rgb=(v,v,v)
+                elif n>=16: q=[0,95,135,175,215,255]; n-=16; rgb=(q[n//36],q[n//6%6],q[n%6])
+                else: rgb=PAL.get(30+n if n<8 else 82+n,FG)
+                s.attr['fg' if p==38 else 'bg']=rgb; i+=2
             elif p in PAL: s.attr['fg']=PAL[p]
             elif p in BGPAL: s.attr['bg']=BGPAL[p]
             i+=1
     def feed(s,data):
+        data=getattr(s,'pending','')+data
+        m=re.search(r'\x1b[^A-Za-z\x07\\]*$',data)  # escape sequence cut off at the end of a read
+        s.pending=data[m.start():] if m else ''
+        if m: data=data[:m.start()]
+        data=re.sub(r'\x1b\][^\x07\x1b]*(\x07|\x1b\\)','',data)  # OSC (e.g. the background query)
         for m in re.finditer(r'\x1b\[([?0-9;]*)([A-Za-z])|([^\x1b])',data):
             if m.group(3) is not None: s.put(m.group(3)); continue
             p,cmd=m.group(1),m.group(2)
@@ -61,7 +71,7 @@ class Screen:
                 if ch!=' ': d.text((x,y+2),ch,font=BOLD if a.get('b') else FONT,fill=fg)
         return img
 
-env=dict(os.environ,HOME=D+'/home',PATH=D+'/bin:'+os.environ['PATH'],TERM='xterm-256color',XDG_CACHE_HOME=D+'/cache')
+env=dict(os.environ,COLORTERM='truecolor',HOME=D+'/home',PATH=D+'/bin:'+os.environ['PATH'],TERM='xterm-256color',XDG_CACHE_HOME=D+'/cache')
 for k in ['TMUX','KITTY_WINDOW_ID','WEZTERM_PANE','CLAUDE_SESSIONS_TERMINAL','TERM_PROGRAM','CLAUDE_CONFIG_DIR']: env.pop(k,None)
 pid,fd=pty.fork()
 if pid==0:
@@ -73,8 +83,10 @@ def pump(t):
     while time.time()<end:
         r,_,_=select.select([fd],[],[],0.03)
         if r:
-            try: scr.feed(os.read(fd,65536).decode('utf8','replace'))
+            try: d=os.read(fd,65536).decode('utf8','replace')
             except OSError: return
+            if '\x1b]11;?' in d: os.write(fd,('\x1b]11;rgb:%02x/%02x/%02x\x07'%BG).encode())  # answer like a real terminal
+            scr.feed(d)
 def shot(dur):
     pump(0.15); n=len(frames); f=f'{D}/frames/{n:04d}.png'; scr.image().save(f); frames.append((f,dur))
 def key(k,dur=0.5): os.write(fd,k.encode()); shot(dur)
@@ -85,6 +97,7 @@ pump(1.2); shot(1.8)
 key('j',0.45); key('j',0.45); key('j',0.9)
 key('p',2.6)                         # preview
 key('k',1.6); key('k',1.8)
+key('l',1.6); key('l',1.4); key('h',0.4); key('h',0.8)   # filter by tag, back to All
 key('/',0.5); typ('webhook'); shot(1.6); key('\t',0.6); key('\x1b',0.8)
 key('s',1.3); key('s',1.6); key('s',0.6)   # sort size -> name -> date
 key('G',0.5); key('r',0.6)

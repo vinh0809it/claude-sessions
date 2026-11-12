@@ -9,8 +9,9 @@ A zero-dependency terminal UI for browsing, previewing, resuming, renaming, movi
 - **Fast** — reads only the head and tail of each session file and caches the result, so even multi-GB histories load in well under a second
 - **Auto-discovers** all `~/.claude*` config directories and `$CLAUDE_CONFIG_DIR` — multiple Claude Code profiles just work
 - **Live search** across session titles, first messages and project paths
+- **Tags** — name sessions like `keycloak/fix-login` and the prefixes become tags; `←` `→` filter by one
 - **Preview** — press `p` to see the last few messages of the selected session
-- **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2, Terminal.app or Windows Terminal, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
+- **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2, Terminal.app, Ptyxis, GNOME Terminal or Windows Terminal, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
 - **Rename** — press `r`; writes the same record `/rename` does
 - **Move** sessions to another profile, an existing folder, or a typed path
 - **Delete safely** — sessions go to a trash folder; mark several with `Space` to delete in bulk; `--empty-trash` frees the space
@@ -27,7 +28,11 @@ npm install -g @vinh0809it/claude-sessions
 npx -y @vinh0809it/claude-sessions
 ```
 
-Requires Node.js 18+.
+Requires **Node.js 18+**. The native Claude Code installer doesn't install Node, so check `node -v` first; if it's missing, get it from [nodejs.org](https://nodejs.org) or your package manager.
+
+Troubleshooting:
+- **Windows PowerShell: "running scripts is disabled on this system"** — run it from `cmd`, or use `npx.cmd -y @vinh0809it/claude-sessions`.
+- **Linux: `EACCES` on `npm install -g`** — use `npx` instead, or [set npm up to install globally without sudo](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally).
 
 ## Usage
 
@@ -52,7 +57,8 @@ Tip: `alias ccs=claude-sessions`
 | `PgUp` `PgDn` | Page up / down |
 | `g` / `G` | Jump to top / bottom |
 | `/` | Search by title, message or path. While typing: `↑↓` select, `Enter` open, `Tab` keep the filter and go back to the list |
-| `Esc` | Clear search and marks |
+| `←` `→` / `h` `l` | Filter by tag (the title prefix before `/`), back to All |
+| `Esc` | Clear search, tag and marks |
 | `Enter` | Open session (new tab if supported, otherwise here) |
 | `o` | Open session in this terminal |
 | `p` | Toggle preview of recent messages |
@@ -88,8 +94,12 @@ Sessions are grouped by profile in the UI. Press `m` to move a session to a diff
 | **tmux** | ✅ new window | In the current session, also when tmux runs inside kitty or WezTerm |
 | **iTerm2** | ✅ new tab | Via `osascript` |
 | **Terminal.app** | ✅ new window | Via `osascript` |
+| **Ptyxis** | ✅ new tab | Default on Fedora and Ubuntu 25.10+ |
+| **GNOME Terminal** | ✅ new tab | Default on older Ubuntu |
 | **Windows Terminal** | ✅ new tab | Via `wt new-tab` (native Windows; in WSL it resumes in place) |
-| Anything else | ✅ same terminal | GNOME Terminal, Ghostty, VS Code, … |
+| Anything else | ✅ same terminal | Ghostty, Konsole, VS Code, … |
+
+If a new tab can't be opened (e.g. kitty without `allow_remote_control`, or macOS automation permission denied), the session opens in the current terminal instead.
 
 Set `CLAUDE_SESSIONS_TERMINAL=here` to always resume in place.
 
@@ -106,7 +116,7 @@ export CLAUDE_SESSIONS_OPEN_CMD="ghostty --command=bash -i -c %cmd%"
 # iTerm2 via osascript
 export CLAUDE_SESSIONS_OPEN_CMD="osascript -e 'tell app \"iTerm\" to create window with default profile command \"bash -i -c %cmd%\"'"
 
-# Force a specific mode: kitty | wezterm | tmux | iterm2 | apple-terminal | windows-terminal | here
+# Force a specific mode: kitty | wezterm | tmux | iterm2 | apple-terminal | ptyxis | gnome-terminal | windows-terminal | here
 export CLAUDE_SESSIONS_TERMINAL=wezterm
 ```
 
