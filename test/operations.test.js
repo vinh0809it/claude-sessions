@@ -174,7 +174,7 @@ describe('trash: list, restore, delete forever', () => {
       fs.mkdirSync(path.join(cfg, 'projects', '-p', uuid));
       deleteSessionFiles({ jsonlPath, configDirPath: cfg });
       const [entry] = listTrash([cfg]);
-      deleteForever(entry);
+      assert.ok(deleteForever(entry) > 0); // bytes freed
       assert.deepEqual(listTrash([cfg]), []);
       assert.ok(!fs.existsSync(path.join(cfg, '.claude-sessions-trash', '-p')));
     } finally { rmTmp(root); }

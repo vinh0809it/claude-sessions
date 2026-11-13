@@ -58,7 +58,7 @@ Tip: `alias ccs=claude-sessions`
 | `PgUp` `PgDn` | Page up / down |
 | `g` / `G` | Jump to top / bottom |
 | `/` | Search by title, first message or folder. While typing: `↑↓` select, `Enter` open, `Tab` keep the filter and go back to the list |
-| `f` | Find text inside conversations (searched in the background; same keys as `/`) |
+| `f` | Find text inside conversations: a popup with the query and progress while the list behind filters; `Enter` closes it keeping the results, `Esc` cancels |
 | `←` `→` / `h` `l` | Choose a tag (the title prefix before `/`); the list filters as you go. With the `side` tags layout: `←` / `Tab` goes to the Tags column, `↑` `↓` choose, `→` / `Enter` back |
 | `Esc` | Clear search, tag and marks |
 | `Enter` | Open session (new tab if supported, otherwise here) |
