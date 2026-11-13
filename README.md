@@ -14,7 +14,7 @@ A zero-dependency terminal UI for browsing, previewing, resuming, renaming, movi
 - **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2, Terminal.app, Ptyxis, GNOME Terminal or Windows Terminal, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
 - **Rename** — press `r`; writes the same record `/rename` does
 - **Move** sessions to another profile, an existing folder, or a typed path
-- **Delete safely** — sessions go to a trash folder; mark several with `Space` to delete in bulk; `u` undoes the last delete, `t` opens the trash to restore or remove for good; `--empty-trash` frees the space
+- **Delete safely** — sessions go to a trash folder; mark several with `Space` to delete in bulk; `u` undoes the last delete, `t` opens the trash to restore, permanently delete one, or delete all; `--empty-trash` frees the space
 - **Live** — new and updated sessions show up on their own while the list is open
 - **Sort** by date, size or name — find the huge sessions eating your disk
 - Zero runtime dependencies — pure Node.js stdlib
@@ -71,9 +71,9 @@ Tip: `alias ccs=claude-sessions`
 | `m` | Move session to another profile / folder |
 | `d` | Move marked (or selected) sessions to trash |
 | `u` | Undo the last delete |
-| `t` | Trash: `Enter` restores, `x` deletes for good |
+| `t` | Trash: `Enter` restores, `x` permanently deletes one, `X` deletes all |
 | `,` | Settings |
-| `?` | Help |
+| `?` | Help (all keys) |
 | `q` / `Ctrl-C` | Quit |
 
 Mouse: the wheel scrolls, a click selects a session or a tag, a double click opens the session. Whatever is under the pointer is highlighted, and in kitty the pointer turns into a hand. While the tool is open, hold `Shift` to select text; turn mouse support off in Settings.
@@ -152,7 +152,7 @@ Claude Code stores sessions in `~/.claude*/projects/<encoded-path>/<uuid>.jsonl`
 
 Only the first and last 256 KB of each file are read. Results are cached in `~/.cache/claude-sessions/index.json` (or `$XDG_CACHE_HOME`), keyed by file size and mtime.
 
-Deleted sessions are moved to `<config dir>/.claude-sessions-trash/`; run `claude-sessions --empty-trash` to remove them for good.
+Deleted sessions are moved to `<config dir>/.claude-sessions-trash/`. Restore or permanently delete them from the trash screen (`t`), or run `claude-sessions --empty-trash`.
 
 > **Renaming a session that is open in Claude Code:** Claude keeps re-writing its own title, so rename it from inside that session with `/rename` instead.
 

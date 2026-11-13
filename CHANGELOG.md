@@ -7,9 +7,10 @@
 - **Settings** (`,`): where sessions open, mouse, tags layout, sort and preview on start, custom open command. Saved to `~/.config/claude-sessions/config.json`; environment variables still override them.
 - **Tags panel**: title prefixes (`keycloak/…`) are shown as tags in a panel above the list that wraps onto more lines, with `▲`/`▼ n more` when some are scrolled away. `←` `→` choose a tag. The `side` layout puts them in a column on the left instead.
 - **Find inside conversations** (`f`): lists the sessions whose conversation contains the text. It runs in the background, shows its progress, and restarts as you type. `/` still searches titles, first messages and folders only.
-- **Trash**: `u` undoes the last delete; `t` lists deleted sessions to restore (`Enter`) or delete for good (`x`); `t` is in the footer.
+- **Trash**: `u` undoes the last delete; `t` lists deleted sessions to restore (`Enter`), permanently delete one (`x`) or delete them all (`X`).
 - **Live list**: new and updated sessions show up on their own while the list is open.
 - The list is drawn in a frame with column titles (`SESSION`, `FOLDER`, `SIZE`, `UPDATED`).
+- Footer: actions on the left; trash, settings and help on the right.
 
 ### Changed
 - `←` `→` now choose a tag (in 0.4.x they did the same through a single tag row).
