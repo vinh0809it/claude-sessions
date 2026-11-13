@@ -19,11 +19,11 @@ describe('parseBackgroundReply', () => {
 
 describe('themeFor', () => {
   test('unknown background: the default selection', () => {
-    assert.deepEqual(themeFor(null), { light: false, selectedBg: '48;5;236' });
+    assert.deepEqual(themeFor(null), { light: false, selectedBg: '48;5;236', hoverBg: '48;5;235' });
   });
   test('dark background: a lighter tint, truecolor when supported', () => {
     assert.deepEqual(themeFor({ r: 30, g: 30, b: 46 }, { COLORTERM: 'truecolor' }),
-      { light: false, selectedBg: '48;2;59;59;73' });
+      { light: false, selectedBg: '48;2;59;59;73', hoverBg: '48;2;44;44;59' });
   });
   test('a background equal to the default selection still gets a visible tint', () => {
     assert.notEqual(themeFor({ r: 48, g: 48, b: 48 }, {}).selectedBg, '48;5;236');

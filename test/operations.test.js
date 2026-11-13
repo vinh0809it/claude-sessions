@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { makeTmp, rmTmp, writeJsonl } = require('./support/helpers');
-const { deleteSessionFiles, emptyTrash, moveSession, renameSession } = require('../lib/operations');
+const { deleteSessionFiles, listTrash, restoreFromTrash, deleteForever, emptyTrash, moveSession, renameSession } = require('../lib/operations');
 const { readSession } = require('../lib/sessions');
 
 describe('moveSession', () => {
@@ -120,6 +120,63 @@ describe('deleteSessionFiles + emptyTrash', () => {
       assert.ok(fs.existsSync(path.join(cfg, '.claude-sessions-trash', '-p', 'abc', 'x.txt')));
       assert.ok(emptyTrash([cfg]) > 0);
       assert.ok(!fs.existsSync(path.join(cfg, '.claude-sessions-trash')));
+    } finally { rmTmp(root); }
+  });
+});
+
+describe('trash: list, restore, delete forever', () => {
+  const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  test('a deleted session is listed and restores to its folder with its companion dir', () => {
+    const root = makeTmp([]);
+    try {
+      const cfg = path.join(root, '.claude');
+      const jsonlPath = path.join(cfg, 'projects', '-p', `${uuid}.jsonl`);
+      writeJsonl(jsonlPath, [{ type: 'user', cwd: '/p', message: { content: 'hello' } }, { type: 'custom-title', customTitle: 'api/x' }]);
+      fs.mkdirSync(path.join(cfg, 'projects', '-p', uuid));
+
+      const trashed = deleteSessionFiles({ jsonlPath, configDirPath: cfg });
+      const [entry] = listTrash([cfg]);
+      assert.equal(entry.jsonlPath, trashed);
+      assert.equal(entry.sessionId, uuid);
+      assert.equal(entry.title, 'api/x');
+
+      assert.equal(restoreFromTrash(entry), jsonlPath);
+      assert.ok(fs.existsSync(jsonlPath));
+      assert.ok(fs.statSync(path.join(cfg, 'projects', '-p', uuid)).isDirectory());
+      assert.deepEqual(listTrash([cfg]), []);
+    } finally { rmTmp(root); }
+  });
+
+  test('a name clash in the trash still restores under the real id', () => {
+    const root = makeTmp([]);
+    try {
+      const cfg = path.join(root, '.claude');
+      const jsonlPath = path.join(cfg, 'projects', '-p', `${uuid}.jsonl`);
+      writeJsonl(jsonlPath, [{ type: 'user', message: { content: 'one' } }]);
+      deleteSessionFiles({ jsonlPath, configDirPath: cfg });
+      writeJsonl(jsonlPath, [{ type: 'user', message: { content: 'two' } }]);
+      deleteSessionFiles({ jsonlPath, configDirPath: cfg });
+
+      const entries = listTrash([cfg]);
+      assert.equal(entries.length, 2);
+      assert.ok(entries.every(e => e.sessionId === uuid));
+      restoreFromTrash(entries[0]);
+      assert.throws(() => restoreFromTrash(entries[1]), /already exists/);
+    } finally { rmTmp(root); }
+  });
+
+  test('deleteForever removes the file and its companion dir', () => {
+    const root = makeTmp([]);
+    try {
+      const cfg = path.join(root, '.claude');
+      const jsonlPath = path.join(cfg, 'projects', '-p', `${uuid}.jsonl`);
+      writeJsonl(jsonlPath, [{ type: 'user', message: { content: 'x' } }]);
+      fs.mkdirSync(path.join(cfg, 'projects', '-p', uuid));
+      deleteSessionFiles({ jsonlPath, configDirPath: cfg });
+      const [entry] = listTrash([cfg]);
+      deleteForever(entry);
+      assert.deepEqual(listTrash([cfg]), []);
+      assert.ok(!fs.existsSync(path.join(cfg, '.claude-sessions-trash', '-p')));
     } finally { rmTmp(root); }
   });
 });

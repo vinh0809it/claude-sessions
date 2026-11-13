@@ -71,19 +71,20 @@ class Screen:
                 if ch!=' ': d.text((x,y+2),ch,font=BOLD if a.get('b') else FONT,fill=fg)
         return img
 
-env=dict(os.environ,COLORTERM='truecolor',HOME=D+'/home',PATH=D+'/bin:'+os.environ['PATH'],TERM='xterm-256color',XDG_CACHE_HOME=D+'/cache')
+env=dict(os.environ,COLORTERM='truecolor',HOME=D+'/home',PATH=D+'/bin:'+os.environ['PATH'],TERM='xterm-256color',XDG_CACHE_HOME=D+'/cache',XDG_CONFIG_HOME=D+'/config')
 for k in ['TMUX','KITTY_WINDOW_ID','WEZTERM_PANE','CLAUDE_SESSIONS_TERMINAL','TERM_PROGRAM','CLAUDE_CONFIG_DIR']: env.pop(k,None)
 pid,fd=pty.fork()
 if pid==0:
     os.chdir(D+'/home'); os.execvpe('node',['node',IDX],env)
 fcntl.ioctl(fd,termios.TIOCSWINSZ,struct.pack('HHHH',ROWS,COLS,0,0))
 scr=Screen(); frames=[]
+import codecs; UTF8=codecs.getincrementaldecoder('utf8')('replace')
 def pump(t):
     end=time.time()+t
     while time.time()<end:
         r,_,_=select.select([fd],[],[],0.03)
         if r:
-            try: d=os.read(fd,65536).decode('utf8','replace')
+            try: d=UTF8.decode(os.read(fd,65536))  # keeps a character split across reads whole
             except OSError: return
             if '\x1b]11;?' in d: os.write(fd,('\x1b]11;rgb:%02x/%02x/%02x\x07'%BG).encode())  # answer like a real terminal
             scr.feed(d)

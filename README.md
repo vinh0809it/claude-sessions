@@ -8,13 +8,14 @@ A zero-dependency terminal UI for browsing, previewing, resuming, renaming, movi
 
 - **Fast** — reads only the head and tail of each session file and caches the result, so even multi-GB histories load in well under a second
 - **Auto-discovers** all `~/.claude*` config directories and `$CLAUDE_CONFIG_DIR` — multiple Claude Code profiles just work
-- **Live search** across session titles, first messages and project paths
-- **Tags** — name sessions like `keycloak/fix-login` and the prefixes become tags; `←` `→` filter by one
+- **Live search** across session titles, first messages and project paths, then inside the conversations themselves (matches marked `≈`)
+- **Tags** — name sessions like `keycloak/fix-login` and the prefixes become tags in a panel above the list (or a side column); pick one to filter
 - **Preview** — press `p` to see the last few messages of the selected session
 - **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2, Terminal.app, Ptyxis, GNOME Terminal or Windows Terminal, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
 - **Rename** — press `r`; writes the same record `/rename` does
 - **Move** sessions to another profile, an existing folder, or a typed path
-- **Delete safely** — sessions go to a trash folder; mark several with `Space` to delete in bulk; `--empty-trash` frees the space
+- **Delete safely** — sessions go to a trash folder; mark several with `Space` to delete in bulk; `u` undoes the last delete, `t` opens the trash to restore or remove for good; `--empty-trash` frees the space
+- **Live** — new and updated sessions show up on their own while the list is open
 - **Sort** by date, size or name — find the huge sessions eating your disk
 - Zero runtime dependencies — pure Node.js stdlib
 
@@ -56,8 +57,8 @@ Tip: `alias ccs=claude-sessions`
 | `↑` `↓` / `j` `k` | Navigate |
 | `PgUp` `PgDn` | Page up / down |
 | `g` / `G` | Jump to top / bottom |
-| `/` | Search by title, message or path. While typing: `↑↓` select, `Enter` open, `Tab` keep the filter and go back to the list |
-| `←` `→` / `h` `l` | Filter by tag (the title prefix before `/`), back to All |
+| `/` | Search by title, message or path, then inside conversations (3+ characters; those matches are marked `≈`). While typing: `↑↓` select, `Enter` open, `Tab` keep the filter and go back to the list |
+| `←` `→` / `h` `l` | Choose a tag (the title prefix before `/`); the list filters as you go. With the `side` tags layout: `←` / `Tab` goes to the Tags column, `↑` `↓` choose, `→` / `Enter` back |
 | `Esc` | Clear search, tag and marks |
 | `Enter` | Open session (new tab if supported, otherwise here) |
 | `o` | Open session in this terminal |
@@ -68,8 +69,28 @@ Tip: `alias ccs=claude-sessions`
 | `n` | New session (choose profile + folder) |
 | `m` | Move session to another profile / folder |
 | `d` | Move marked (or selected) sessions to trash |
+| `u` | Undo the last delete |
+| `t` | Trash: `Enter` restores, `x` deletes for good |
+| `,` | Settings |
 | `?` | Help |
 | `q` / `Ctrl-C` | Quit |
+
+Mouse: the wheel scrolls, a click selects a session or a tag, a double click opens the session. Whatever is under the pointer is highlighted, and in kitty the pointer turns into a hand. While the tool is open, hold `Shift` to select text; turn mouse support off in Settings.
+
+### Settings
+
+Press `,` to change settings; they're saved right away to `~/.config/claude-sessions/config.json` (`%APPDATA%\claude-sessions` on Windows).
+
+| Setting | Values | Environment variable |
+|---------|--------|----------------------|
+| Open sessions in | `auto` (new tab when supported), `here`, or a terminal name | `CLAUDE_SESSIONS_TERMINAL` |
+| Mouse | on / off | `CLAUDE_SESSIONS_MOUSE=0` |
+| Tags layout | `top` (a panel above the list, wraps) / `side` (a column on the left, wide screens) | |
+| Sort on start | date / size / name | |
+| Preview on start | on / off | |
+| Custom open command | a command with `%cmd%` `%title%` `%project%` | `CLAUDE_SESSIONS_OPEN_CMD` |
+
+An environment variable, when set, overrides the saved setting.
 
 ## Multiple profiles
 
@@ -101,7 +122,7 @@ Sessions are grouped by profile in the UI. Press `m` to move a session to a diff
 
 If a new tab can't be opened (e.g. kitty without `allow_remote_control`, or macOS automation permission denied), the session opens in the current terminal instead.
 
-Set `CLAUDE_SESSIONS_TERMINAL=here` to always resume in place.
+Choose `here` in Settings (or set `CLAUDE_SESSIONS_TERMINAL=here`) to always resume in place.
 
 Set `NO_COLOR=1` to turn off colors (bold and inverse are kept).
 
