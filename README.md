@@ -8,7 +8,7 @@ A zero-dependency terminal UI for browsing, previewing, resuming, renaming, movi
 
 - **Fast** — reads only the head and tail of each session file and caches the result, so even multi-GB histories load in well under a second
 - **Auto-discovers** all `~/.claude*` config directories and `$CLAUDE_CONFIG_DIR` — multiple Claude Code profiles just work
-- **Live search** across session titles, first messages and project paths, then inside the conversations themselves (matches marked `≈`)
+- **Live search** across session titles, first messages and project paths (`/`), or inside the conversations themselves (`f`)
 - **Tags** — name sessions like `keycloak/fix-login` and the prefixes become tags in a panel above the list (or a side column); pick one to filter
 - **Preview** — press `p` to see the last few messages of the selected session
 - **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2, Terminal.app, Ptyxis, GNOME Terminal or Windows Terminal, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
@@ -57,7 +57,8 @@ Tip: `alias ccs=claude-sessions`
 | `↑` `↓` / `j` `k` | Navigate |
 | `PgUp` `PgDn` | Page up / down |
 | `g` / `G` | Jump to top / bottom |
-| `/` | Search by title, message or path, then inside conversations (3+ characters; those matches are marked `≈`). While typing: `↑↓` select, `Enter` open, `Tab` keep the filter and go back to the list |
+| `/` | Search by title, first message or folder. While typing: `↑↓` select, `Enter` open, `Tab` keep the filter and go back to the list |
+| `f` | Find text inside conversations (searched in the background; same keys as `/`) |
 | `←` `→` / `h` `l` | Choose a tag (the title prefix before `/`); the list filters as you go. With the `side` tags layout: `←` / `Tab` goes to the Tags column, `↑` `↓` choose, `→` / `Enter` back |
 | `Esc` | Clear search, tag and marks |
 | `Enter` | Open session (new tab if supported, otherwise here) |
