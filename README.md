@@ -10,7 +10,8 @@ A zero-dependency terminal UI for browsing, previewing, resuming, renaming, movi
 - **Auto-discovers** all `~/.claude*` config directories and `$CLAUDE_CONFIG_DIR` — multiple Claude Code profiles just work
 - **Live search** across session titles, first messages and project paths (`/`), or inside the conversations themselves (`f`)
 - **Tags** — name sessions like `keycloak/fix-login` and the prefixes become tags in a panel above the list (or a side column); pick one to filter
-- **Preview** — press `p` to see the last few messages of the selected session
+- **Preview** — press `p` to see the last few messages and the token usage of the selected session (counted once per reply, subagents included)
+- **Pin and fork** — `*` keeps a session on top; `F` resumes it as a new session, leaving the original untouched
 - **Resume anywhere** — `Enter` opens a new tab in kitty, WezTerm, tmux, iTerm2, Terminal.app, Ptyxis, GNOME Terminal or Windows Terminal, and otherwise resumes right in the current terminal (you return to the list when Claude exits). `o` always resumes in place
 - **Rename** — press `r`; writes the same record `/rename` does
 - **Move** sessions to another profile, an existing folder, or a typed path
@@ -42,6 +43,7 @@ claude-sessions                    # Browse all sessions (TUI)
 claude-sessions ~/projects/acme    # Filter to a specific folder
 claude-sessions --named-only       # Only show /rename'd sessions
 claude-sessions --list             # Plain list (pipe-friendly)
+claude-sessions -o keycloak/revoke # Resume the matching session directly (title, id or id prefix)
 claude-sessions --json             # JSON output
 claude-sessions -d ~/.claude-work  # Scan a specific config dir
 claude-sessions --empty-trash      # Permanently remove deleted sessions
@@ -58,12 +60,14 @@ Tip: `alias ccs=claude-sessions`
 | `PgUp` `PgDn` | Page up / down |
 | `g` / `G` | Jump to top / bottom |
 | `/` | Search by title, first message or folder. While typing: `↑↓` select, `Enter` open, `Tab` keep the filter and go back to the list |
-| `f` | Find text inside conversations: a popup with the query and progress while the list behind filters; `Enter` closes it keeping the results, `Esc` cancels |
+| `f` | Find text in what you and Claude wrote (not tool output): a popup with the query and progress while the list behind filters; `Enter` closes it and shows the matches in the preview, `Esc` cancels |
 | `←` `→` / `h` `l` | Choose a tag (the title prefix before `/`); the list filters as you go. With the `side` tags layout: `←` / `Tab` goes to the Tags column, `↑` `↓` choose, `→` / `Enter` back |
 | `Esc` | Clear search, tag and marks |
 | `Enter` | Open session (new tab if supported, otherwise here) |
 | `o` | Open session in this terminal |
-| `p` | Toggle preview of recent messages |
+| `F` | Fork: resume into a new session, leaving the original as it is |
+| `*` | Pin / unpin (pinned sessions stay at the top of their profile) |
+| `p` | Toggle preview: token usage, the matches of an `f` search, recent messages |
 | `r` | Rename session |
 | `s` | Cycle sort: date / size / name |
 | `Space` | Mark session for bulk delete |

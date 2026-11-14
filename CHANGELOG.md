@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0
+
+### New
+- **Fork** (`F`): resume a session into a new session id (`--fork-session`), leaving the original as it is.
+- **Pins** (`*`): pinned sessions show a `★` and stay at the top of their profile. Saved to `~/.config/claude-sessions/pins.json`.
+- **Token usage** in the preview: input (and how much came from cache), output, replies and models. Each reply is counted once (Claude Code writes one line per content block), subagent transcripts are included, and turns before a `/compact` still count. A session continued in a new file only covers that file.
+- **Open from the command line**: `claude-sessions -o <query>` resumes the session whose title or id matches, without the TUI; with several matches it lists them.
+
+### Changed
+- `f` searches only what you and Claude wrote, not tool output, so file contents and logs no longer produce noise. Closing its popup shows the preview with the matching messages, the text highlighted.
+
+### Fixed
+- While searching, the `[profile]` tags are padded to one width so the columns stay aligned.
+
 ## 0.5.0
 
 ### New

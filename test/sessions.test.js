@@ -168,3 +168,36 @@ describe('belongsTo', () => {
     assert.equal(belongsTo('c:\\Users\\me\\app', 'C--Users-me-app', true), true);
   });
 });
+
+describe('sortSessions with pins', () => {
+  test('pinned sessions come first within their profile', () => {
+    const s = (id, cfg, t) => ({ sessionId: id, configDir: cfg, lastModified: new Date(t), size: 1 });
+    const list = [s('a', 'w', 3), s('b', 'w', 2), s('c', 'w', 1), s('d', 'd', 5)];
+    const ids = sortSessions(list, 'date', id => id === 'c' || id === 'd').map(x => x.sessionId);
+    assert.deepEqual(ids, ['c', 'a', 'b', 'd']);
+  });
+});
+
+describe('findSessions', () => {
+  const { findSessions } = require('../lib/sessions');
+  const s = (id, title, first, project, t) => ({ sessionId: id, title, firstMessage: first, project, lastModified: new Date(t) });
+  const list = [
+    s('aaaa1111', 'keycloak/revoke-token', 'revoke all tokens', '/w/keycloak', 1),
+    s('bbbb2222', 'keycloak/revoke', 'x', '/w/keycloak', 2),
+    s('cccc3333', 'reward/app-clip', 'about keycloak', '/w/reward', 3),
+  ];
+  test('exact title beats partial matches', () => {
+    assert.deepEqual(findSessions(list, 'Keycloak/Revoke').map(x => x.sessionId), ['bbbb2222']);
+  });
+  test('id prefix', () => {
+    assert.deepEqual(findSessions(list, 'cccc').map(x => x.sessionId), ['cccc3333']);
+  });
+  test('title matches before first-message matches, newest first', () => {
+    assert.deepEqual(findSessions(list, 'keycloak').map(x => x.sessionId), ['bbbb2222', 'aaaa1111']);
+  });
+  test('falls back to the first message, then the folder; nothing for blanks', () => {
+    assert.deepEqual(findSessions(list, 'all tokens').map(x => x.sessionId), ['aaaa1111']);
+    assert.deepEqual(findSessions(list, '/w/reward').map(x => x.sessionId), ['cccc3333']);
+    assert.deepEqual(findSessions(list, '  '), []);
+  });
+});
