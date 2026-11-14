@@ -53,6 +53,25 @@ describe('Settings', () => {
     assert.equal(s.envOverride('sort'), null);
   });
 
+  test('saving keeps changes from another window and unknown keys', () => {
+    const file = path.join(root, 'f', 'config.json');
+    const a = new Settings(file, {}), b = new Settings(file, {});
+    a.set('sort', 'size');
+    b.set('preview', true);
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), future: 1 }));
+    a.set('mouse', false);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { sort: 'size', preview: true, future: 1, mouse: false });
+  });
+
+  test('saving over a broken file keeps it as .bak', () => {
+    const file = path.join(root, 'g', 'config.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{ "sort": "size", oops');
+    new Settings(file, {}).set('preview', true);
+    assert.equal(fs.readFileSync(file + '.bak', 'utf8'), '{ "sort": "size", oops');
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { preview: true });
+  });
+
   test('rejects invalid values', () => {
     const s = new Settings(path.join(root, 'e', 'config.json'), {});
     assert.throws(() => s.set('sort', 'random'));

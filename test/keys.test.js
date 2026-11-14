@@ -2,22 +2,8 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { splitKeys } = require('../lib/tui/keys');
-
-describe('splitKeys', () => {
-  test('splits pasted text, keeps escape sequences whole', () => {
-    assert.deepEqual(splitKeys('ab\x1b[A\x1b[5~\r\x7f\x1b'), ['a', 'b', '\x1b[A', '\x1b[5~', '\r', '\x7f', '\x1b']);
-  });
-  test('keeps multi-byte characters intact', () => {
-    assert.deepEqual(splitKeys('tên😀'), ['t', 'ê', 'n', '😀']);
-  });
-});
-
 describe('parseMouse', () => {
   const { parseMouse } = require('../lib/tui/keys');
-  test('splitKeys keeps a mouse report whole', () => {
-    assert.deepEqual(splitKeys('j\x1b[<64;10;5Mk'), ['j', '\x1b[<64;10;5M', 'k']);
-  });
   test('wheel up / down, left click, release and other buttons', () => {
     assert.deepEqual(parseMouse('\x1b[<64;10;5M'), { x: 10, y: 5, wheel: -1, click: false, motion: false });
     assert.deepEqual(parseMouse('\x1b[<65;10;5M'), { x: 10, y: 5, wheel: 1, click: false, motion: false });

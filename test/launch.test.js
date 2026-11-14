@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { makeTmp, rmTmp, writeJsonl } = require('./support/helpers');
-const { detectTerminal, configDirEnv, findClaude, resolveProjectPath, wtArgs } = require('../lib/launch');
+const { detectTerminal, configDirEnv, findClaude, resolveProjectPath, wtArgs, tabCommand, runOpenCommand } = require('../lib/launch');
 const { encodePathToDir } = require('../lib/paths');
 
 describe('resolveProjectPath', () => {
@@ -57,34 +57,123 @@ describe('resolveProjectPath', () => {
 });
 
 describe('detectTerminal', () => {
-  test('falls back to opening in this terminal', () => {
-    assert.equal(detectTerminal({}), 'here');
-  });
-  test('detects kitty, tmux, iTerm, Apple Terminal, honours override', () => {
-    assert.equal(detectTerminal({ KITTY_WINDOW_ID: '1' }), 'kitty');
-    assert.equal(detectTerminal({ TMUX: '/tmp/x' }), 'tmux');
-    assert.equal(detectTerminal({ TMUX: '/tmp/x', KITTY_WINDOW_ID: '1' }), 'tmux'); // tmux inside kitty
-    assert.equal(detectTerminal({ TERM_PROGRAM: 'iTerm.app' }), 'iterm2');
-    assert.equal(detectTerminal({ TERM_PROGRAM: 'Apple_Terminal' }), 'apple-terminal');
-    assert.equal(detectTerminal({ TMUX: 'x', CLAUDE_SESSIONS_TERMINAL: 'here' }), 'here');
+  const kitty = { TERM: 'xterm-kitty', KITTY_WINDOW_ID: '2', KITTY_PID: '7805' };
+  const gnome = { TERM: 'xterm-256color', VTE_VERSION: '8001', GNOME_TERMINAL_SCREEN: '/org/gnome/Terminal/screen/x' };
+  const cases = [
+    ['nothing known', {}, 'here'],
+    ['kitty', kitty, 'kitty'],
+    ['kitty with TERM changed in its config', { TERM: 'xterm-256color', KITTY_WINDOW_ID: '1' }, 'kitty'],
+    ['kitty over ssh (no window id)', { TERM: 'xterm-kitty' }, 'here'],
+    ['tmux in kitty', { ...kitty, TERM: 'tmux-256color', TMUX: '/tmp/tmux-1000/default,1,0' }, 'tmux'],
+    ['GNU screen in kitty', { ...kitty, TERM: 'screen', STY: '123.pts-1' }, 'here'],
+    ['zellij in kitty', { ...kitty, TERM: 'xterm-256color', ZELLIJ: '0' }, 'here'],
+    ['VS Code started from kitty', { ...kitty, TERM: 'xterm-256color', TERM_PROGRAM: 'vscode' }, 'here'],
+    ['kitty started from VS Code', { ...kitty, TERM_PROGRAM: 'vscode' }, 'kitty'],
+    ['JetBrains terminal started from kitty', { ...kitty, TERM: 'xterm-256color', TERMINAL_EMULATOR: 'JetBrains-JediTerm' }, 'here'],
+    ['ghostty started from kitty', { ...kitty, TERM: 'xterm-ghostty', TERM_PROGRAM: 'ghostty' }, 'here'],
+    ['alacritty started from kitty', { ...kitty, TERM: 'alacritty' }, 'here'],
+    ['GNOME Terminal', gnome, 'gnome-terminal'],
+    ['GNOME Terminal without VTE_VERSION (inherited)', { GNOME_TERMINAL_SCREEN: 'x' }, 'here'],
+    ['alacritty started from GNOME Terminal', { ...gnome, TERM: 'alacritty' }, 'here'],
+    ['Ptyxis', { TERM: 'xterm-256color', VTE_VERSION: '8001', PTYXIS_VERSION: '48.1' }, 'ptyxis'],
+    ['Ptyxis started from kitty', { TERM: 'xterm-256color', KITTY_WINDOW_ID: '1', VTE_VERSION: '8001', PTYXIS_VERSION: '48.1' }, 'ptyxis'],
+    ['kitty started from Ptyxis', { ...kitty, VTE_VERSION: '8001', PTYXIS_VERSION: '48.1' }, 'kitty'],
+    ['tmux in Ptyxis', { TMUX: 'x', PTYXIS_VERSION: '48.1', VTE_VERSION: '8001' }, 'tmux'],
+    ['WezTerm', { TERM: 'xterm-256color', TERM_PROGRAM: 'WezTerm', WEZTERM_PANE: '0' }, 'wezterm'],
+    ['iTerm2', { TERM_PROGRAM: 'iTerm.app' }, 'iterm2'],
+    ['Terminal.app', { TERM_PROGRAM: 'Apple_Terminal' }, 'apple-terminal'],
+    ['override wins', { TMUX: 'x', CLAUDE_SESSIONS_TERMINAL: 'here' }, 'here'],
+  ];
+  for (const [name, env, expected] of cases) {
+    test(name, () => assert.equal(detectTerminal(env, 'linux'), expected));
+  }
+  test('Windows Terminal on Windows only (WSL sees WT_SESSION too)', () => {
     assert.equal(detectTerminal({ WT_SESSION: 'x' }, 'win32'), 'windows-terminal');
-    assert.equal(detectTerminal({ PTYXIS_VERSION: '50.1', VTE_VERSION: '8401' }), 'ptyxis');
-    assert.equal(detectTerminal({ GNOME_TERMINAL_SCREEN: '/org/gnome/Terminal/screen/x' }), 'gnome-terminal');
-    assert.equal(detectTerminal({ TMUX: 'x', PTYXIS_VERSION: '50.1' }), 'tmux');
-    assert.equal(detectTerminal({ WT_SESSION: 'x' }, 'linux'), 'here'); // WSL
+    assert.equal(detectTerminal({ WT_SESSION: 'x' }, 'linux'), 'here');
   });
 });
 
 describe('wtArgs', () => {
   test('opens a cmd tab with the profile set, escaping ";" for wt', () => {
-    const args = wtArgs({ title: 'fix; login', cwd: 'C:\\Users\\Jo Doe\\app', configDirPath: 'C:\\Users\\Jo Doe\\.claude', args: ['-r', 'abc'] });
+    const args = wtArgs({ title: 'fix; login', cwd: 'C:\\Users\\Jo Doe\\app', configDirPath: 'C:\\Users\\Jo Doe\\.claude-work', args: ['-r', 'abc'] });
     assert.deepEqual(args, ['-w', '0', 'nt', '--title', 'fix\\; login', '-d', 'C:\\Users\\Jo Doe\\app',
-      'cmd', '/k', 'set CLAUDE_CONFIG_DIR=C:\\Users\\Jo Doe\\.claude&& claude -r abc']);
+      'cmd', '/k', 'set "CLAUDE_CONFIG_DIR=C:\\Users\\Jo Doe\\.claude-work"&& claude -r abc']);
   });
-  test('quotes an absolute claude path (spaces in the user name)', () => {
-    const args = wtArgs({ title: 't', cwd: 'C:\\app', configDirPath: 'C:\\Users\\Jo Doe\\.claude-work', args: [] },
+  test('quotes an absolute claude path and keeps & literal inside quotes', () => {
+    const args = wtArgs({ title: 't', cwd: 'C:\\app', configDirPath: 'C:\\R&D\\.claude-work', args: [] },
       'C:\\Users\\Jo Doe\\.local\\bin\\claude.exe');
-    assert.equal(args.at(-1), 'set CLAUDE_CONFIG_DIR=C:\\Users\\Jo Doe\\.claude-work&& "C:\\Users\\Jo Doe\\.local\\bin\\claude.exe"');
+    assert.equal(args.at(-1), 'set "CLAUDE_CONFIG_DIR=C:\\R&D\\.claude-work"&& "C:\\Users\\Jo Doe\\.local\\bin\\claude.exe"');
+  });
+  test('refuses % in a path (cmd would expand it)', () => {
+    assert.throws(() => wtArgs({ title: 't', cwd: 'C:\\app', configDirPath: 'C:\\100%\\.claude-work', args: [] }), /%/);
+  });
+});
+
+describe('tabCommand', () => {
+  const plan = { title: "it's", cwd: '/tmp/my proj', configDirPath: '/nonexistent/.claude-work', args: ['-r', 'abc'] };
+  const bashC = (args) => { const i = args.indexOf('bash'); return args.slice(i, i + 3); };
+
+  test('POSIX terminals run an interactive bash, so ~/.bashrc exports reach claude', () => {
+    for (const t of ['kitty', 'wezterm', 'tmux', 'ptyxis', 'gnome-terminal']) {
+      const [, args] = tabCommand(t, plan, '/bin/claude', {});
+      assert.deepEqual(bashC(args), ['bash', '-i', '-c'], t);
+      assert.match(args.at(-1), /cd '\/tmp\/my proj' && CLAUDE_CONFIG_DIR='\/nonexistent\/.claude-work' '\/bin\/claude' -r abc; exec/);
+    }
+  });
+  test('tmux gets argv after --, so its default-shell never parses our quoting', () => {
+    const [cmd, args] = tabCommand('tmux', plan, '/bin/claude', {});
+    assert.equal(cmd, 'tmux');
+    assert.deepEqual(args.slice(0, 4), ['new-window', '-n', "it's", '--']);
+  });
+  test('WezTerm uses WEZTERM_EXECUTABLE when set (macOS app bundle)', () => {
+    assert.equal(tabCommand('wezterm', plan, '/bin/claude', { WEZTERM_EXECUTABLE: '/Applications/WezTerm.app/x/wezterm' })[0],
+      '/Applications/WezTerm.app/x/wezterm');
+    assert.equal(tabCommand('wezterm', plan, '/bin/claude', {})[0], 'wezterm');
+  });
+  test('Terminal.app/iTerm2 type only "/bin/bash <script>"; the script runs the plan and removes itself',
+    { skip: process.platform === 'win32' }, () => {
+      const root = makeTmp(['proj']);
+      try {
+        const marker = path.join(root, 'ran');
+        const claude = path.join(root, 'claude');
+        fs.writeFileSync(claude, `#!/bin/sh\npwd > '${marker}'\necho "$@" >> '${marker}'\n`, { mode: 0o755 });
+        const p = { ...plan, cwd: path.join(root, 'proj') };
+        for (const t of ['apple-terminal', 'iterm2']) {
+          const [cmd, args, timeout] = tabCommand(t, p, claude, {});
+          assert.equal(cmd, 'osascript');
+          assert.ok(timeout >= 30000);
+          const script = /\/bin\/bash '([^']+)'/.exec(args[1])[1];
+          assert.ok(fs.existsSync(script));
+          const r = require('child_process').spawnSync('bash', [script], { env: { ...process.env, SHELL: '/bin/true' } });
+          assert.equal(r.status, 0, t);
+          assert.equal(fs.readFileSync(marker, 'utf8'), `${p.cwd}\n-r abc\n`);
+          assert.ok(!fs.existsSync(path.dirname(script)), 'script removed');
+        }
+      } finally { rmTmp(root); }
+    });
+  test('no tab command for "here" or unknown terminals', () => {
+    assert.equal(tabCommand('here', plan, '/bin/claude', {}), null);
+  });
+});
+
+describe('runOpenCommand (POSIX)', { skip: process.platform === 'win32' }, () => {
+  let root;
+  before(() => { root = makeTmp([]); });
+  after(() => { rmTmp(root); });
+  const plan = () => ({ title: 'T $x', cwd: root, configDirPath: '/nonexistent/.claude-work', args: [] });
+
+  test('substitutes quoted placeholders', () => {
+    const out = path.join(root, 'out');
+    assert.deepEqual(runOpenCommand(`printf '%s|%s' %title% %project% > '${out}'`, plan(), '/bin/claude', false), { ok: true });
+    assert.equal(fs.readFileSync(out, 'utf8'), `T $x|${root}`);
+  });
+  test('a command that keeps running (a terminal window) does not block', () => {
+    const t0 = Date.now();
+    assert.deepEqual(runOpenCommand('sleep 30', plan(), '/bin/claude', false), { ok: true });
+    assert.ok(Date.now() - t0 < 3000);
+  });
+  test('a failing command is reported', () => {
+    assert.equal(runOpenCommand('exit 3', plan(), '/bin/claude', false).ok, false);
   });
 });
 

@@ -33,6 +33,20 @@ describe('findInConversation', () => {
     assert.equal((await findInConversation(f, 'kiểm tra pos')).length, 1);
   });
 
+  test('quotes, backslashes and line breaks in the text still match', async () => {
+    const f = path.join(root, 'escaped.jsonl');
+    writeJsonl(f, [user('then say "hi" to C:\\tmp'), claude('foo\nbar')]);
+    assert.equal((await findInConversation(f, 'say "hi"')).length, 1);
+    assert.equal((await findInConversation(f, 'c:\\tmp')).length, 1);
+    assert.deepEqual(await findInConversation(f, 'foo bar'), [{ role: 'assistant', text: 'foo bar' }]);
+  });
+
+  test('a single line spread over many chunks is read whole', async () => {
+    const f = path.join(root, 'longline.jsonl');
+    writeJsonl(f, [user('y'.repeat(3 * 1024 * 1024) + ' needle here')]);
+    assert.equal((await findInConversation(f, 'needle here')).length, 1);
+  });
+
   test('stops after a few matches', async () => {
     const f = path.join(root, 'many.jsonl');
     writeJsonl(f, Array.from({ length: 10 }, (_, i) => user(`token ${i}`)));

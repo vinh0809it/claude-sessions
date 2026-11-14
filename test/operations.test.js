@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { makeTmp, rmTmp, writeJsonl } = require('./support/helpers');
-const { deleteSessionFiles, listTrash, restoreFromTrash, deleteForever, emptyTrash, moveSession, renameSession } = require('../lib/operations');
+const { movePath, deleteSessionFiles, listTrash, restoreFromTrash, deleteForever, emptyTrash, moveSession, renameSession } = require('../lib/operations');
+const { encodePathToDir } = require('../lib/paths');
 const { readSession } = require('../lib/sessions');
 
 describe('moveSession', () => {
@@ -81,6 +82,80 @@ describe('moveSession', () => {
     const newCompanion = session.jsonlPath.replace('.jsonl', '');
     assert.ok(fs.existsSync(newCompanion), 'companion dir moved');
     assert.ok(fs.existsSync(path.join(newCompanion, 'artifact.txt')), 'companion contents intact');
+  });
+
+  test('refuses before moving anything when the companion dir exists at the target', () => {
+    const session = makeSession('src-f', '-proj5', 's6');
+    const src = session.jsonlPath;
+    fs.mkdirSync(src.replace('.jsonl', ''));
+    const targetConfig = path.join(root, 'dst-f');
+    fs.mkdirSync(path.join(targetConfig, 'projects', '-proj5', 's6'), { recursive: true });
+
+    assert.throws(() => moveSession(session, targetConfig, '-proj5'), /folder already exists/);
+    assert.ok(fs.existsSync(src), 'session left where it was');
+    assert.equal(session.jsonlPath, src);
+  });
+
+  test('a typed path resolves symlinks and is refused when its folder belongs to another path', () => {
+    const real = path.join(root, 'a', 'b-c');
+    fs.mkdirSync(real, { recursive: true });
+    const link = path.join(root, 'link');
+    fs.symlinkSync(real, link);
+    const targetConfig = path.join(root, 'dst-g');
+
+    const s1 = makeSession('src-g', '-proj6', 's7');
+    moveSession(s1, targetConfig, 'ignored', link);
+    const folder = path.dirname(s1.jsonlPath);
+    assert.equal(path.basename(folder), encodePathToDir(real));
+    assert.equal(fs.readFileSync(path.join(folder, '.project-path'), 'utf8'), real);
+
+    // "/…/a/b/c" encodes to the same folder name as "/…/a/b-c".
+    const clash = path.join(root, 'a', 'b', 'c');
+    fs.mkdirSync(clash, { recursive: true });
+    const s2 = makeSession('src-g', '-proj6', 's8');
+    assert.throws(() => moveSession(s2, targetConfig, 'ignored', clash), /belongs to/);
+    assert.equal(fs.readFileSync(path.join(folder, '.project-path'), 'utf8'), real, 'hint kept');
+
+    const s3 = makeSession('src-g', '-proj6', 's9');
+    moveSession(s3, targetConfig, 'ignored', real); // same folder, same path: fine
+    assert.equal(path.dirname(s3.jsonlPath), folder);
+  });
+});
+
+describe('movePath across filesystems', () => {
+  function withExdev(fn) {
+    const rename = fs.renameSync;
+    let first = true;
+    fs.renameSync = (a, b) => {
+      if (first) { first = false; const e = new Error('EXDEV'); e.code = 'EXDEV'; throw e; }
+      return rename(a, b);
+    };
+    try { return fn(); } finally { fs.renameSync = rename; }
+  }
+
+  test('copies, keeps the modification time, removes the source', () => {
+    const root = makeTmp([]);
+    try {
+      const src = path.join(root, 'a.jsonl'), dest = path.join(root, 'b.jsonl');
+      fs.writeFileSync(src, 'x');
+      fs.utimesSync(src, new Date(1e12), new Date(1e12));
+      withExdev(() => movePath(src, dest));
+      assert.ok(!fs.existsSync(src));
+      assert.equal(fs.readFileSync(dest, 'utf8'), 'x');
+      assert.equal(fs.statSync(dest).mtimeMs, 1e12);
+    } finally { rmTmp(root); }
+  });
+
+  test('a failed copy leaves the source and nothing at the destination', () => {
+    const root = makeTmp([]);
+    try {
+      const src = path.join(root, 'a.jsonl'), dest = path.join(root, 'b.jsonl');
+      fs.writeFileSync(src, 'x');
+      const failingCopy = (from, to) => { fs.writeFileSync(to, 'part'); throw new Error('ENOSPC'); };
+      assert.throws(() => withExdev(() => movePath(src, dest, { cp: failingCopy })), /ENOSPC/);
+      assert.ok(fs.existsSync(src));
+      assert.deepEqual(fs.readdirSync(root), ['a.jsonl']);
+    } finally { rmTmp(root); }
   });
 });
 
@@ -162,6 +237,23 @@ describe('trash: list, restore, delete forever', () => {
       assert.ok(entries.every(e => e.sessionId === uuid));
       restoreFromTrash(entries[0]);
       assert.throws(() => restoreFromTrash(entries[1]), /already exists/);
+    } finally { rmTmp(root); }
+  });
+
+  test('restore refuses, leaving everything in the trash, when the companion dir exists at the target', () => {
+    const root = makeTmp([]);
+    try {
+      const cfg = path.join(root, '.claude');
+      const jsonlPath = path.join(cfg, 'projects', '-p', `${uuid}.jsonl`);
+      writeJsonl(jsonlPath, [{ type: 'user', message: { content: 'hello' } }]);
+      fs.mkdirSync(path.join(cfg, 'projects', '-p', uuid, 'subagents'), { recursive: true });
+      deleteSessionFiles({ jsonlPath, configDirPath: cfg });
+      fs.mkdirSync(path.join(cfg, 'projects', '-p', uuid)); // e.g. recreated by a running claude
+
+      const [entry] = listTrash([cfg]);
+      assert.throws(() => restoreFromTrash(entry), /folder already exists/);
+      assert.equal(listTrash([cfg]).length, 1);
+      assert.ok(fs.existsSync(path.join(path.dirname(entry.jsonlPath), uuid, 'subagents')));
     } finally { rmTmp(root); }
   });
 

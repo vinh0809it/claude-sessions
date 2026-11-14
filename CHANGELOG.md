@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.0
+
+A robustness release, after an audit of the whole code base.
+
+### Fixed
+- **Search shows a PROFILE column title** above the `[profile]` tags it adds to each row.
+- **Delete confirmation named the wrong session**: after marking one session (the cursor moves on), the prompt showed the session under the cursor while `y` deleted the marked one.
+- **Pasted text ran as commands**: a paste with a newline (e.g. into `/` search) could open, or with `d`/`y` in it delete, a session. Pastes now go into the text field as one line (bracketed paste; on terminals without it, a burst of keys with Enter inside counts as a paste).
+- **Escape sequences split across reads** (common over ssh), **Alt+key**, and **old-style mouse reports** (GNU screen, PuTTY) no longer turn into stray keystrokes such as `d`, `y` or `q`. A late reply to the background-color query is dropped instead of read as keys.
+- **Renaming a session that's running** could overwrite the line Claude was writing at that moment; it now appends.
+- **Moving or restoring a session** could leave its subagent folder behind (and emptying the trash then deleted it) without saying so. Both now check the target first, roll back a half-done move, keep timestamps across disks, and report every failure.
+- **Control characters in titles and messages** (colored logs pasted into a prompt, or a crafted file) were drawn as-is and could change the window title or clipboard; they're stripped now.
+- **CJK and emoji** titles pushed the columns out of the frame and could be cut mid-character; widths are now measured in terminal columns.
+- A session file with an odd `cwd`, a first line over 256 KB (a pasted image), a BOM, or a corrupt cache no longer crashes the scan or loses the session's details.
+- The list could stay scrolled past its end after filtering or deleting; the selection now follows its session.
+- `f`: the list kept the previous query's matches while typing; clicks went through the popup; phrases with quotes or spanning a line break weren't found.
+- A click on the "terminal too small" screen crashed; keys there no longer act on the hidden list.
+- The hover highlight came back after turning the mouse off; an edit in Settings carried over to another row.
+- `-o feed` took "feed" for an id prefix; id prefixes now need 8+ characters.
+- Running `claude-sessions .` listed sessions whose folder is unknown.
+- Two windows open at once no longer overwrite each other's pins and settings; a settings file that doesn't parse is kept as `.bak`.
+- A symlinked or differently-cased `CLAUDE_CONFIG_DIR` listed every session twice; a leading `~` in it is expanded.
+- Killing the process (`SIGINT`, `SIGHUP`) or a crash left the terminal in the alternate screen; a crash now shows its error.
+
+### Terminals
+- Terminal.app and iTerm2 run a small script instead of typing a command into your login shell, so fish and nushell work; tmux gets its arguments directly.
+- The terminal is detected from where you actually are: VS Code, Alacritty or JetBrains started from kitty or GNOME Terminal, and GNU screen or zellij inside kitty, no longer try (and hang on) the parent's tab command.
+- A custom open command runs in the background instead of blocking until its window closes; on Windows it runs through `cmd /c`.
+- Windows Terminal: config paths with `&`, `^` or `(` work; paths with `%` or `"` are refused with a message.
+- WezTerm on macOS is found through `WEZTERM_EXECUTABLE`; the macOS automation prompt gets 30 s instead of 5.
+- Redraws use synchronized output, so terminals that support it (kitty, WezTerm, iTerm2, Ghostty, foot, Windows Terminal, …) never show a half-drawn frame.
+- 16-color terminals get inverse video for the selection; non-UTF-8 locales get an ASCII frame; `TERM=dumb` gets the plain list; Git Bash without a console gets a hint to use `winpty`.
+
+### Internals
+- The main screen's drawing and layout moved out of `app.js` into `list-view.js`, computed from state so drawing and mouse hit-testing always agree. Help, settings, trash and the pickers share one screen interface; key decoding is one stateful decoder (`input.js`).
+
 ## 0.6.0
 
 ### New

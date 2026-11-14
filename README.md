@@ -34,6 +34,7 @@ Requires **Node.js 18+**. The native Claude Code installer doesn't install Node,
 
 Troubleshooting:
 - **Windows PowerShell: "running scripts is disabled on this system"** — run it from `cmd`, or use `npx.cmd -y @vinh0809it/claude-sessions`.
+- **Git Bash (mintty): only a plain list shows** — mintty without ConPTY isn't a real console; run `winpty claude-sessions`, or use Windows Terminal.
 - **Linux: `EACCES` on `npm install -g`** — use `npx` instead, or [set npm up to install globally without sudo](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally).
 
 ## Usage
@@ -43,7 +44,7 @@ claude-sessions                    # Browse all sessions (TUI)
 claude-sessions ~/projects/acme    # Filter to a specific folder
 claude-sessions --named-only       # Only show /rename'd sessions
 claude-sessions --list             # Plain list (pipe-friendly)
-claude-sessions -o keycloak/revoke # Resume the matching session directly (title, id or id prefix)
+claude-sessions -o keycloak/revoke # Resume the matching session directly (title, id or its first 8+ characters)
 claude-sessions --json             # JSON output
 claude-sessions -d ~/.claude-work  # Scan a specific config dir
 claude-sessions --empty-trash      # Permanently remove deleted sessions
@@ -117,30 +118,33 @@ Sessions are grouped by profile in the UI. Press `m` to move a session to a diff
 |----------|---------|-------|
 | **Kitty** | ✅ new tab | Requires `allow_remote_control yes` in `kitty.conf` |
 | **WezTerm** | ✅ new tab | Uses `wezterm cli spawn` |
-| **tmux** | ✅ new window | In the current session, also when tmux runs inside kitty or WezTerm |
+| **tmux** | ✅ new window | In the current session, also when tmux runs inside kitty or WezTerm (tmux 3.0+) |
 | **iTerm2** | ✅ new tab | Via `osascript` |
 | **Terminal.app** | ✅ new window | Via `osascript` |
 | **Ptyxis** | ✅ new tab | Default on Fedora and Ubuntu 25.10+ |
 | **GNOME Terminal** | ✅ new tab | Default on older Ubuntu |
 | **Windows Terminal** | ✅ new tab | Via `wt new-tab` (native Windows; in WSL it resumes in place) |
-| Anything else | ✅ same terminal | Ghostty, Konsole, VS Code, … |
+| Anything else | ✅ same terminal | Ghostty, Konsole, VS Code, GNU screen, zellij, … (or set a custom open command) |
 
 If a new tab can't be opened (e.g. kitty without `allow_remote_control`, or macOS automation permission denied), the session opens in the current terminal instead.
 
 Choose `here` in Settings (or set `CLAUDE_SESSIONS_TERMINAL=here`) to always resume in place.
 
-Set `NO_COLOR=1` to turn off colors (bold and inverse are kept).
+Set `NO_COLOR=1` to turn off colors (bold and inverse are kept). On 16-color terminals (e.g. the Linux console) the selection uses inverse video, and when the locale isn't UTF-8 the frame is drawn in plain ASCII.
+
+A terminal launched from another one (say VS Code started from kitty) inherits its environment; `TERM_PROGRAM` and `TERM` decide which one you're actually in, so the session doesn't open in the wrong app.
 
 ### Custom open command
 
-Set `CLAUDE_SESSIONS_OPEN_CMD` with placeholders `%cmd%`, `%title%`, and `%project%`:
+Set `CLAUDE_SESSIONS_OPEN_CMD` with placeholders `%cmd%`, `%title%`, and `%project%`. It runs in the background, so a command that stays open (like a new terminal window) doesn't block the list. On Windows it runs through `cmd /c` (begin it with `start` so it doesn't wait) and `%cmd%` is a `cmd` command line:
 
 ```sh
-# Ghostty (or any terminal with a new-tab flag)
-export CLAUDE_SESSIONS_OPEN_CMD="ghostty --command=bash -i -c %cmd%"
+# Ghostty, Alacritty, foot, … (a new window)
+export CLAUDE_SESSIONS_OPEN_CMD="ghostty -e bash -c %cmd%"
+export CLAUDE_SESSIONS_OPEN_CMD="alacritty --working-directory %project% -e bash -c %cmd%"
 
-# iTerm2 via osascript
-export CLAUDE_SESSIONS_OPEN_CMD="osascript -e 'tell app \"iTerm\" to create window with default profile command \"bash -i -c %cmd%\"'"
+# Konsole (a new tab)
+export CLAUDE_SESSIONS_OPEN_CMD="konsole --new-tab --workdir %project% -e bash -c %cmd%"
 
 # Force a specific mode: kitty | wezterm | tmux | iterm2 | apple-terminal | ptyxis | gnome-terminal | windows-terminal | here
 export CLAUDE_SESSIONS_TERMINAL=wezterm

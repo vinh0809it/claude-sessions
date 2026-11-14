@@ -15,3 +15,20 @@ describe('parseArgs', () => {
     assert.ok(o.emptyTrash && o.noCache && o.namedOnly);
   });
 });
+
+describe('discoverConfigDirs', () => {
+  test('lists a folder reached through a symlink or $CLAUDE_CONFIG_DIR once, expanding ~', { skip: process.platform === 'win32' }, () => {
+    const { discoverConfigDirs } = require('../lib/config');
+    const { makeTmp, rmTmp } = require('./support/helpers');
+    const fs = require('fs');
+    const home = makeTmp(['.claude/projects', '.claude-work/projects']);
+    const oldHome = process.env.HOME;
+    try {
+      fs.symlinkSync(path.join(home, '.claude'), path.join(home, '.claude-alias'));
+      process.env.HOME = home;
+      const dirs = discoverConfigDirs({ CLAUDE_CONFIG_DIR: '~/.claude' });
+      assert.equal(dirs.length, 2);
+      assert.deepEqual(dirs.map(d => path.basename(d)), ['.claude-work', '.claude']);
+    } finally { process.env.HOME = oldHome; rmTmp(home); }
+  });
+});

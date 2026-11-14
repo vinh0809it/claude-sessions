@@ -84,6 +84,31 @@ describe('readSession', () => {
     assert.equal(r.cwd, '/p');
   });
 
+  test('a first line longer than the head window does not hide the metadata after it', () => {
+    const f = path.join(root, 'hugefirst.jsonl');
+    writeJsonl(f, [
+      { type: 'summary', summary: 'x'.repeat(600 * 1024) },
+      { type: 'user', message: { content: 'after' }, cwd: '/p2', timestamp: 't' },
+      ...Array(400).fill({ type: 'assistant', message: { content: [{ type: 'text', text: 'z'.repeat(1000) }] } }),
+    ]);
+    const r = readSession(f);
+    assert.equal(r.cwd, '/p2');
+    assert.equal(r.firstUserMessage, 'after');
+  });
+
+  test('ignores non-string cwd and text, strips escape sequences and a BOM', () => {
+    const f = path.join(root, 'odd.jsonl');
+    fs.writeFileSync(f, '\ufeff' + [
+      { type: 'user', cwd: 123, message: { content: [{ type: 'text', text: 42 }] } },
+      { type: 'custom-title', customTitle: 'red\x1b[31m title\x07' },
+      { type: 'user', message: { content: 'hi \x1b]52;c;eA==\x07there' }, cwd: '/ok' },
+    ].map(r => JSON.stringify(r)).join('\n'));
+    const r = readSession(f);
+    assert.equal(r.cwd, '/ok');
+    assert.equal(r.title, 'red title');
+    assert.equal(r.firstUserMessage, 'hi there');
+  });
+
   test('extracts text from array content blocks', () => {
     const f = path.join(root, 'session4.jsonl');
     writeJsonl(f, [
@@ -125,6 +150,16 @@ describe('scanConfigDir', () => {
       assert.ok(all.every(s => typeof s.size === 'number' && s.size > 0));
       assert.equal(scanConfigDir(cfg, '/home/u/my.app').length, 2);
       assert.equal(scanConfigDir(cfg, '/home/u/my').length, 0, 'prefix of a folder name is not a match');
+    } finally { rmTmp(root); }
+  });
+
+  test('a session whose path is unknown never matches a folder filter', () => {
+    const root = makeTmp([]);
+    try {
+      const cfg = path.join(root, '.claude');
+      writeJsonl(path.join(cfg, 'projects', '-gone-x', 'a.jsonl'), [{ type: 'user', message: { content: 'a' } }]);
+      assert.equal(scanConfigDir(cfg, null)[0].project, '-gone-x');
+      assert.equal(scanConfigDir(cfg, process.cwd()).length, 0);
     } finally { rmTmp(root); }
   });
 });
@@ -189,8 +224,17 @@ describe('findSessions', () => {
   test('exact title beats partial matches', () => {
     assert.deepEqual(findSessions(list, 'Keycloak/Revoke').map(x => x.sessionId), ['bbbb2222']);
   });
-  test('id prefix', () => {
-    assert.deepEqual(findSessions(list, 'cccc').map(x => x.sessionId), ['cccc3333']);
+  test('id prefix, only for id-like queries', () => {
+    assert.deepEqual(findSessions(list, 'cccc3333').map(x => x.sessionId), ['cccc3333']);
+    assert.deepEqual(findSessions(list, 'cccc3').map(x => x.sessionId), []); // too short to be an id
+  });
+  test('a hex word matches a title before an id prefix', () => {
+    const l = [
+      { sessionId: 'feed1234-0000', title: 'other', lastModified: 2 },
+      { sessionId: 'abcd', title: 'feed parser', lastModified: 1 },
+    ];
+    assert.deepEqual(findSessions(l, 'feed').map(x => x.sessionId), ['abcd']);
+    assert.deepEqual(findSessions(l, 'feed1234').map(x => x.sessionId), ['feed1234-0000']);
   });
   test('title matches before first-message matches, newest first', () => {
     assert.deepEqual(findSessions(list, 'keycloak').map(x => x.sessionId), ['bbbb2222', 'aaaa1111']);
