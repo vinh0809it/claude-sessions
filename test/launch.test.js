@@ -144,8 +144,8 @@ describe('tabCommand', () => {
           assert.ok(timeout >= 30000);
           const script = /\/bin\/bash '([^']+)'/.exec(args[1])[1];
           assert.ok(fs.existsSync(script));
-          const r = require('child_process').spawnSync('bash', [script], { env: { ...process.env, SHELL: '/bin/true' } });
-          assert.equal(r.status, 0, t);
+          const r = require('child_process').spawnSync('bash', [script], { env: { ...process.env, SHELL: 'true' } }); // found on PATH (macOS has no /bin/true)
+          assert.equal(r.status, 0, `${t}: ${r.stderr}`);
           assert.equal(fs.readFileSync(marker, 'utf8'), `${p.cwd}\n-r abc\n`);
           assert.ok(!fs.existsSync(path.dirname(script)), 'script removed');
         }

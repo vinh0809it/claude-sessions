@@ -97,8 +97,8 @@ describe('moveSession', () => {
   });
 
   test('a typed path resolves symlinks and is refused when its folder belongs to another path', () => {
-    const real = path.join(root, 'a', 'b-c');
-    fs.mkdirSync(real, { recursive: true });
+    fs.mkdirSync(path.join(root, 'a', 'b-c'), { recursive: true });
+    const real = fs.realpathSync(path.join(root, 'a', 'b-c')); // macOS: /var → /private/var
     const link = path.join(root, 'link');
     fs.symlinkSync(real, link);
     const targetConfig = path.join(root, 'dst-g');
